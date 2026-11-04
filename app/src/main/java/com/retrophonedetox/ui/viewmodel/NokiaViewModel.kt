@@ -3,6 +3,7 @@ package com.retrophonedetox.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import com.retrophonedetox.domain.model.NokiaKey
 import com.retrophonedetox.domain.model.NokiaMenuItem
+import com.retrophonedetox.ui.theme.NokiaLcdPalette
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,84 +14,137 @@ import java.util.Locale
 
 /**
  * Stato immutabile della schermata Nokia (Pattern MVVM + Unidirectional Data Flow).
- * La UI legge solo questo oggetto per sapere cosa disegnare sul display LCD.
  */
 data class NokiaUiState(
     val menuItems: List<NokiaMenuItem> = defaultNokiaMenu(),
     val selectedIndex: Int = 0,
     val openedItem: NokiaMenuItem? = null,
+    val themeCursorIndex: Int = 0,
     val isDetoxActive: Boolean = true,
     val batteryBars: Int = 4,
     val signalBars: Int = 4,
     val currentTime: String = formatCurrentTime(),
-    val statusBanner: String? = null
+    val statusBanner: String? = null,
+    val palette: NokiaLcdPalette = NokiaLcdPalette.SAGE_LCD
 )
 
 /**
- * ViewModel principale che riceve gli eventi dei tasti fisici (`onKeyPress`)
- * e aggiorna lo stato del display LCD.
+ * ViewModel della Modalità NOKIA:
+ * - Anello SU (▲) / GIÙ (▼): scorre la lista corrente (Menu principale oppure i 4 Temi dentro "7. Tema Display")
+ * - Tasto Centrale (OK): apre/conferma la voce selezionata
+ * - Tasto in alto a sinistra (SOFT_LEFT, trattino blu + ≡): riporta subito alla Home (menu principale in cima)
+ * - Tasto in alto a destra (SOFT_RIGHT, trattino blu + C / ↩): torna indietro dal sottomenu
+ * - Tasto in basso a sinistra (CALL_GREEN, trattino verde + ✆): da qualsiasi schermata apre subito "1. Telefono"
+ * - Tasto in basso a destra (END_RED, trattino rosso + ⏻): mantenuto graficamente così com'è, riservato a usi futuri
  */
 class NokiaViewModel : ViewModel() {
 
     private val _uiState = MutableStateFlow(NokiaUiState())
     val uiState: StateFlow<NokiaUiState> = _uiState.asStateFlow()
 
-    /**
-     * Gestisce la pressione di un tasto sul tastierino inferiore (20% dello schermo).
-     */
     fun onKeyPress(key: NokiaKey) {
         _uiState.update { current ->
             val updatedTime = formatCurrentTime()
+            val themes = NokiaLcdPalette.entries
 
             when (key) {
                 NokiaKey.UP -> {
-                    // Se siamo nel menu principale, saliamo alla voce precedente (con effetto circolare)
-                    if (current.openedItem == null && current.menuItems.isNotEmpty()) {
-                        val prevIndex = if (current.selectedIndex - 1 < 0) {
-                            current.menuItems.lastIndex
-                        } else {
-                            current.selectedIndex - 1
+                    when {
+                        current.openedItem?.id == "theme" -> {
+                            val prevThemeIdx = if (current.themeCursorIndex - 1 < 0) {
+                                themes.lastIndex
+                            } else {
+                                current.themeCursorIndex - 1
+                            }
+                            current.copy(
+                                themeCursorIndex = prevThemeIdx,
+                                currentTime = updatedTime,
+                                statusBanner = "Anteprima: ${themes[prevThemeIdx].displayName}"
+                            )
                         }
-                        current.copy(
-                            selectedIndex = prevIndex,
-                            currentTime = updatedTime,
-                            statusBanner = null
-                        )
-                    } else {
-                        current.copy(currentTime = updatedTime)
+
+                        current.openedItem == null && current.menuItems.isNotEmpty() -> {
+                            val prevIndex = if (current.selectedIndex - 1 < 0) {
+                                current.menuItems.lastIndex
+                            } else {
+                                current.selectedIndex - 1
+                            }
+                            current.copy(
+                                selectedIndex = prevIndex,
+                                currentTime = updatedTime,
+                                statusBanner = null
+                            )
+                        }
+
+                        else -> current.copy(currentTime = updatedTime)
                     }
                 }
 
                 NokiaKey.DOWN -> {
-                    // Se siamo nel menu principale, scendiamo alla voce successiva (con effetto circolare)
-                    if (current.openedItem == null && current.menuItems.isNotEmpty()) {
-                        val nextIndex = (current.selectedIndex + 1) % current.menuItems.size
-                        current.copy(
-                            selectedIndex = nextIndex,
-                            currentTime = updatedTime,
-                            statusBanner = null
-                        )
-                    } else {
-                        current.copy(currentTime = updatedTime)
+                    when {
+                        current.openedItem?.id == "theme" -> {
+                            val nextThemeIdx = (current.themeCursorIndex + 1) % themes.size
+                            current.copy(
+                                themeCursorIndex = nextThemeIdx,
+                                currentTime = updatedTime,
+                                statusBanner = "Anteprima: ${themes[nextThemeIdx].displayName}"
+                            )
+                        }
+
+                        current.openedItem == null && current.menuItems.isNotEmpty() -> {
+                            val nextIndex = (current.selectedIndex + 1) % current.menuItems.size
+                            current.copy(
+                                selectedIndex = nextIndex,
+                                currentTime = updatedTime,
+                                statusBanner = null
+                            )
+                        }
+
+                        else -> current.copy(currentTime = updatedTime)
                     }
                 }
 
-                NokiaKey.OK, NokiaKey.CALL_GREEN -> {
-                    // Conferma/apre la voce selezionata (oppure torna al menu se è già aperta)
-                    if (current.openedItem == null) {
-                        val selected = current.menuItems.getOrNull(current.selectedIndex)
-                        current.copy(
-                            openedItem = selected,
-                            currentTime = updatedTime,
-                            statusBanner = selected?.let { "Apertura: ${it.title}" }
-                        )
-                    } else {
-                        current.copy(currentTime = updatedTime)
+                // Tasto Centrale OK: conferma / apre la voce selezionata
+                NokiaKey.OK -> {
+                    when {
+                        current.openedItem?.id == "theme" -> {
+                            val chosenPalette = themes[current.themeCursorIndex]
+                            current.copy(
+                                palette = chosenPalette,
+                                currentTime = updatedTime,
+                                statusBanner = "Attivato: ${chosenPalette.displayName}"
+                            )
+                        }
+
+                        current.openedItem == null -> {
+                            val selected = current.menuItems.getOrNull(current.selectedIndex)
+                            current.copy(
+                                openedItem = selected,
+                                themeCursorIndex = current.palette.ordinal,
+                                currentTime = updatedTime,
+                                statusBanner = selected?.let {
+                                    if (it.id == "theme") "Usa Su/Giù e premi OK"
+                                    else "Apertura: ${it.title}"
+                                }
+                            )
+                        }
+
+                        else -> current.copy(currentTime = updatedTime)
                     }
                 }
 
-                NokiaKey.BACK_RED -> {
-                    // Il tasto Rosso / C chiude la schermata aperta e riporta al menu principale
+                // Tasto in alto a sinistra (SOFT_LEFT, ≡): riporta subito alla Home (menu principale in cima)
+                NokiaKey.SOFT_LEFT -> {
+                    current.copy(
+                        openedItem = null,
+                        selectedIndex = 0,
+                        currentTime = updatedTime,
+                        statusBanner = "Home Nokia"
+                    )
+                }
+
+                // Tasto in alto a destra (SOFT_RIGHT, C / ↩): torna indietro di un livello
+                NokiaKey.SOFT_RIGHT -> {
                     if (current.openedItem != null) {
                         current.copy(
                             openedItem = null,
@@ -98,13 +152,24 @@ class NokiaViewModel : ViewModel() {
                             statusBanner = null
                         )
                     } else {
-                        // Se siamo già nel menu principale, riporta il cursore alla prima voce
-                        current.copy(
-                            selectedIndex = 0,
-                            currentTime = updatedTime,
-                            statusBanner = "Menu principale"
-                        )
+                        current.copy(currentTime = updatedTime)
                     }
+                }
+
+                // Tasto in basso a sinistra (CALL_GREEN, ✆): apre subito le Chiamate / Telefono
+                NokiaKey.CALL_GREEN -> {
+                    val phoneItem = current.menuItems.firstOrNull { it.id == "phone" }
+                    current.copy(
+                        selectedIndex = 0,
+                        openedItem = phoneItem,
+                        currentTime = updatedTime,
+                        statusBanner = "Chiamata rapida: Telefono"
+                    )
+                }
+
+                // Tasto in basso a destra (END_RED, ⏻): lasciato così com'è, vedremo nei prossimi Sprint come sfruttarlo
+                NokiaKey.END_RED -> {
+                    current.copy(currentTime = updatedTime)
                 }
             }
         }
@@ -116,10 +181,6 @@ private fun formatCurrentTime(): String {
     return formatter.format(Date())
 }
 
-/**
- * Voci iniziali del menu Nokia (stile Modalità Super Risparmio Energetico).
- * Nelle prossime User Stories (US 1.3 e US 1.4) collegheremo queste voci alle vere app installate!
- */
 private fun defaultNokiaMenu(): List<NokiaMenuItem> = listOf(
     NokiaMenuItem(
         id = "phone",
@@ -162,5 +223,12 @@ private fun defaultNokiaMenu(): List<NokiaMenuItem> = listOf(
         title = "Sblocco SOS",
         packageName = null,
         description = "Pausa emergenza (Enigma / Codice)"
+    ),
+    NokiaMenuItem(
+        id = "theme",
+        indexNumber = 7,
+        title = "Tema Display",
+        packageName = null,
+        description = "Cambia colori Anti-Luce Blu (4 temi)"
     )
 )

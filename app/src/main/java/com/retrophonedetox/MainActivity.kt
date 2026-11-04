@@ -13,9 +13,6 @@ import com.retrophonedetox.ui.viewmodel.NokiaViewModel
 
 /**
  * Punto di ingresso principale dell'app Android "Modalità NOKIA".
- *
- * Intercetta anche il tasto "Indietro" di sistema Android e lo trasforma
- * nella pressione del Tasto Rosso (C) del Nokia, evitando l'uscita accidentale.
  */
 class MainActivity : ComponentActivity() {
 
@@ -25,12 +22,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Intercetta il gesto/tasto "Indietro" di Android e lo collega al tasto ROSSO (C) del Nokia
+        // Il tasto Indietro di Android agisce come il Tasto Funzione Destro ("Indietro")
         onBackPressedDispatcher.addCallback(
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
-                    nokiaViewModel.onKeyPress(NokiaKey.BACK_RED)
+                    nokiaViewModel.onKeyPress(NokiaKey.SOFT_RIGHT)
                 }
             }
         )

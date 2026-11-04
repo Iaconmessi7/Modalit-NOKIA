@@ -13,7 +13,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.retrophonedetox.domain.model.NokiaKey
 import com.retrophonedetox.ui.components.NokiaKeypad
 import com.retrophonedetox.ui.components.NokiaLcdDisplay
-import com.retrophonedetox.ui.theme.NokiaColors
+import com.retrophonedetox.ui.theme.Nokia5200ShellColors
 import com.retrophonedetox.ui.theme.NokiaTheme
 import com.retrophonedetox.ui.viewmodel.NokiaUiState
 import com.retrophonedetox.ui.viewmodel.NokiaViewModel
@@ -22,8 +22,8 @@ import com.retrophonedetox.ui.viewmodel.NokiaViewModel
  * Schermata principale della Modalità NOKIA (US 1.1 & US 1.2).
  *
  * Divide verticalmente lo schermo dello smartphone in:
- * - 80% Superiore (`weight(0.8f)`): Display LCD monocromatico verde oliva (senza touch).
- * - 20% Inferiore (`weight(0.2f)`): Tastierino fisico con vibrazione aptica.
+ * - 80% Superiore (`weight(0.8f)`): Bordino bianco con scritta NOKIA nera a destra + Display LCD a tutta larghezza.
+ * - 20% Inferiore (`weight(0.2f)`): Tastierino avorio fedele agli anni 2000 con i soli trattini colorati e bottone OK centrale.
  */
 @Composable
 fun NokiaHomeScreen(
@@ -46,10 +46,10 @@ fun NokiaHomeContent(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(NokiaColors.BodyShellDark)
+            .background(Nokia5200ShellColors.ShellIvory)
             .safeDrawingPadding()
     ) {
-        // 80% SUPERIORE: Display LCD Nokia
+        // 80% SUPERIORE: Display LCD a tutta larghezza + Bordino superiore con logo NOKIA
         NokiaLcdDisplay(
             menuItems = uiState.menuItems,
             selectedIndex = uiState.selectedIndex,
@@ -58,11 +58,13 @@ fun NokiaHomeContent(
             signalBars = uiState.signalBars,
             isDetoxActive = uiState.isDetoxActive,
             openedItem = uiState.openedItem,
+            themeCursorIndex = uiState.themeCursorIndex,
             statusBanner = uiState.statusBanner,
+            palette = uiState.palette,
             modifier = Modifier.weight(0.8f)
         )
 
-        // 20% INFERIORE: Tastierino Fisico Nokia con vibrazione
+        // 20% INFERIORE: Tastierino Fisico anni 2000 con vibrazione
         NokiaKeypad(
             onKeyPress = onKeyPress,
             modifier = Modifier.weight(0.2f)

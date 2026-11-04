@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,18 +34,19 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.retrophonedetox.domain.model.NokiaKey
-import com.retrophonedetox.ui.theme.NokiaColors
+import com.retrophonedetox.ui.theme.Nokia5200ShellColors
 
 /**
- * US 1.1 & US 1.2 - Il Tastierino Fisico Nokia (occupa il 20% inferiore dello schermo).
+ * US 1.1 & US 1.2 - Tastierino Fisico Nokia 5200 (20% inferiore):
  *
- * Ispirato al blocco di comando del Nokia 3110 / 3310:
- * - A sinistra: Tasto ROSSO / C (Indietro / Chiudi) e Tasto VERDE (Conferma / Chiama)
- * - Al centro: Il grande tasto "Navi-Key" blu/argento (OK / Seleziona)
- * - A destra: Il bilanciere direzionale (▲ SU e ▼ GIÙ) per scorrere il menu LCD
- *
- * Ogni pressione genera un feedback aptico (vibrazione secca del motore del telefono)
- * e abbassa visivamente il tasto.
+ * - A sinistra:
+ *   1. Tasto Funzione Sinistro (`SOFT_LEFT`): trattino blu + simbolo minimale "≡" (Seleziona/Menu)
+ *   2. Tasto Verde (`CALL_GREEN`): trattino verde + cornetta "✆" verde (Chiama subito)
+ * - Al centro:
+ *   - Anello quadrato arrotondato con freccette "▲" sopra e "▼" sotto + pulsante centrale quadrato "OK"
+ * - A destra:
+ *   1. Tasto Funzione Destro (`SOFT_RIGHT`): trattino blu + "C / ↩" (Indietro/Cancella)
+ *   2. Tasto Rosso (`END_RED`): trattino rosso + simbolo uscita/fine chiamata "⏻" in rosso (Chiudi/Home)
  */
 @Composable
 fun NokiaKeypad(
@@ -54,7 +56,6 @@ fun NokiaKeypad(
     val haptic = LocalHapticFeedback.current
     val view = LocalView.current
 
-    // Funzione che attiva la vibrazione fisica e notifica il ViewModel
     val triggerKey: (NokiaKey) -> Unit = { key ->
         view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -64,34 +65,49 @@ fun NokiaKeypad(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .background(NokiaColors.BodyShellDark)
-            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .background(Nokia5200ShellColors.ShellIvory)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(bottomStart = 22.dp, bottomEnd = 22.dp, topStart = 8.dp, topEnd = 8.dp))
+                .background(Nokia5200ShellColors.ShellIvoryRecessed)
+                .border(
+                    width = 1.5.dp,
+                    color = Nokia5200ShellColors.ShellBorderGray,
+                    shape = RoundedCornerShape(bottomStart = 22.dp, bottomEnd = 22.dp, topStart = 8.dp, topEnd = 8.dp)
+                )
+                .padding(horizontal = 10.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // COLONNA SINISTRA: Tasto Rosso (C / Indietro) + Tasto Verde (Chiama)
+            // COLONNA SINISTRA: Trattino Blu + "≡" (Soft-Key Sx) | Trattino Verde + "✆" (Chiamata)
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.SpaceBetween
             ) {
-                PhysicalNokiaButton(
-                    label = "C",
-                    subLabel = "━━",
-                    accentColor = NokiaColors.BackRedAccent,
-                    onClick = { triggerKey(NokiaKey.BACK_RED) },
+                Nokia5200MinimalSideKey(
+                    barColor = Nokia5200ShellColors.SoftKeyBlueBar,
+                    symbol = "≡",
+                    symbolColor = Nokia5200ShellColors.KeyLabelDark,
+                    onClick = { triggerKey(NokiaKey.SOFT_LEFT) },
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
                 )
-                PhysicalNokiaButton(
-                    label = "✆",
-                    subLabel = "━━",
-                    accentColor = NokiaColors.CallGreenAccent,
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.5.dp)
+                        .background(Nokia5200ShellColors.ShellBorderGray)
+                )
+                Nokia5200MinimalSideKey(
+                    barColor = Nokia5200ShellColors.CallGreenBar,
+                    symbol = "✆",
+                    symbolColor = Nokia5200ShellColors.CallGreenBar,
                     onClick = { triggerKey(NokiaKey.CALL_GREEN) },
                     modifier = Modifier
                         .weight(1f)
@@ -99,39 +115,43 @@ fun NokiaKeypad(
                 )
             }
 
-            // COLONNA CENTRALE: Il grande tasto "Navi-Key" (OK / MENU) del Nokia 3310
-            PhysicalNokiaButton(
-                label = "OK",
-                subLabel = "━━━",
-                accentColor = NokiaColors.NaviBlueAccent,
-                isPrimaryNaviKey = true,
-                onClick = { triggerKey(NokiaKey.OK) },
+            // CENTRO: Anello Quadrato Arrotondato con ▲ / ▼ + Pulsante Centrale "OK"
+            Nokia5200CenterSquircleRing(
+                onUpClick = { triggerKey(NokiaKey.UP) },
+                onOkClick = { triggerKey(NokiaKey.OK) },
+                onDownClick = { triggerKey(NokiaKey.DOWN) },
                 modifier = Modifier
-                    .weight(1.3f)
+                    .weight(1.35f)
                     .fillMaxHeight()
             )
 
-            // COLONNA DESTRA: Frecce direzionali (▲ SU / ▼ GIÙ)
+            // COLONNA DESTRA: Trattino Blu + "C / ↩" (Soft-Key Dx) | Trattino Rosso + "⏻" (Chiudi/Home)
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.SpaceBetween
             ) {
-                PhysicalNokiaButton(
-                    label = "▲",
-                    subLabel = "SU",
-                    accentColor = NokiaColors.KeyBorderDark,
-                    onClick = { triggerKey(NokiaKey.UP) },
+                Nokia5200MinimalSideKey(
+                    barColor = Nokia5200ShellColors.SoftKeyBlueBar,
+                    symbol = "C / ↩",
+                    symbolColor = Nokia5200ShellColors.KeyLabelDark,
+                    onClick = { triggerKey(NokiaKey.SOFT_RIGHT) },
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
                 )
-                PhysicalNokiaButton(
-                    label = "▼",
-                    subLabel = "GIÙ",
-                    accentColor = NokiaColors.KeyBorderDark,
-                    onClick = { triggerKey(NokiaKey.DOWN) },
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.5.dp)
+                        .background(Nokia5200ShellColors.ShellBorderGray)
+                )
+                Nokia5200MinimalSideKey(
+                    barColor = Nokia5200ShellColors.EndCallRedBar,
+                    symbol = "⏻",
+                    symbolColor = Nokia5200ShellColors.EndCallRedBar,
+                    onClick = { triggerKey(NokiaKey.END_RED) },
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
@@ -142,65 +162,160 @@ fun NokiaKeypad(
 }
 
 /**
- * Singolo tasto fisico sagomato con effetto di pressione e bordo metallico.
+ * Tasto laterale minimale con trattino colorato + piccolo simbolo/lettera indicativa.
  */
 @Composable
-private fun PhysicalNokiaButton(
-    label: String,
-    subLabel: String,
-    accentColor: Color,
-    isPrimaryNaviKey: Boolean = false,
+private fun Nokia5200MinimalSideKey(
+    barColor: Color,
+    symbol: String,
+    symbolColor: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
 
-    val shape = RoundedCornerShape(if (isPrimaryNaviKey) 22.dp else 14.dp)
-    val backgroundColor = if (isPressed) NokiaColors.KeyCapPressed else NokiaColors.KeyCapSilver
-    val borderWidth = if (isPressed) 2.dp else 3.dp
+    val bg = if (isPressed) Nokia5200ShellColors.ShellIvoryPressed else Nokia5200ShellColors.ShellIvory
 
-    Box(
+    Column(
         modifier = modifier
-            .clip(shape)
-            .background(backgroundColor)
-            .border(borderWidth, NokiaColors.KeyBorderDark, shape)
+            .clip(RoundedCornerShape(8.dp))
+            .background(bg)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = onClick
             )
-            .padding(4.dp),
+            .padding(vertical = 3.dp, horizontal = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.52f)
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(barColor)
+        )
+        Text(
+            text = symbol,
+            style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp),
+            color = symbolColor,
+            fontWeight = FontWeight.Black,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 2.dp)
+        )
+    }
+}
+
+/**
+ * Anello centrale quadrato arrotondato ("Squircle") con freccette ▲ / ▼ e pulsante centrale "OK".
+ */
+@Composable
+private fun Nokia5200CenterSquircleRing(
+    onUpClick: () -> Unit,
+    onOkClick: () -> Unit,
+    onDownClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val outerShape = RoundedCornerShape(24.dp)
+    val centerShape = RoundedCornerShape(12.dp)
+
+    val upInteraction = remember { MutableInteractionSource() }
+    val isUpPressed by upInteraction.collectIsPressedAsState()
+
+    val downInteraction = remember { MutableInteractionSource() }
+    val isDownPressed by downInteraction.collectIsPressedAsState()
+
+    val okInteraction = remember { MutableInteractionSource() }
+    val isOkPressed by okInteraction.collectIsPressedAsState()
+
+    Box(
+        modifier = modifier
+            .clip(outerShape)
+            .background(Nokia5200ShellColors.ShellIvory)
+            .border(3.dp, Nokia5200ShellColors.ShellBorderGray, outerShape),
         contentAlignment = Alignment.Center
     ) {
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.titleLarge.copy(
-                    fontSize = if (isPrimaryNaviKey) 24.sp else 18.sp,
-                    fontWeight = FontWeight.Black
-                ),
-                color = NokiaColors.KeyBorderDark,
-                textAlign = TextAlign.Center
-            )
+            // Metà superiore dell'anello con piccola freccetta ▲ sopra il tasto OK
             Box(
                 modifier = Modifier
-                    .padding(top = 2.dp)
-                    .height(4.dp)
-                    .fillMaxWidth(if (isPrimaryNaviKey) 0.55f else 0.4f)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(accentColor)
-            )
-            if (!isPrimaryNaviKey && (subLabel == "SU" || subLabel == "GIÙ")) {
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .background(
+                        if (isUpPressed) Nokia5200ShellColors.ShellIvoryPressed
+                        else Color.Transparent
+                    )
+                    .clickable(
+                        interactionSource = upInteraction,
+                        indication = null,
+                        onClick = onUpClick
+                    ),
+                contentAlignment = Alignment.TopCenter
+            ) {
                 Text(
-                    text = subLabel,
-                    style = MaterialTheme.typography.labelMedium.copy(fontSize = 10.sp),
-                    color = NokiaColors.KeyBorderDark
+                    text = "▲",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Nokia5200ShellColors.KeyLabelDark,
+                    modifier = Modifier.padding(top = 3.dp)
                 )
             }
+
+            // Metà inferiore dell'anello con piccola freccetta ▼ sotto il tasto OK
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .background(
+                        if (isDownPressed) Nokia5200ShellColors.ShellIvoryPressed
+                        else Color.Transparent
+                    )
+                    .clickable(
+                        interactionSource = downInteraction,
+                        indication = null,
+                        onClick = onDownClick
+                    ),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                Text(
+                    text = "▼",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Nokia5200ShellColors.KeyLabelDark,
+                    modifier = Modifier.padding(bottom = 3.dp)
+                )
+            }
+        }
+
+        // Pulsante Quadrato Arrotondato Centrale con scritta "OK"
+        Box(
+            modifier = Modifier
+                .size(width = 56.dp, height = 44.dp)
+                .clip(centerShape)
+                .background(
+                    if (isOkPressed) Nokia5200ShellColors.ShellIvoryPressed
+                    else Nokia5200ShellColors.ShellIvoryRecessed
+                )
+                .border(2.dp, Nokia5200ShellColors.ShellBorderGray, centerShape)
+                .clickable(
+                    interactionSource = okInteraction,
+                    indication = null,
+                    onClick = onOkClick
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "OK",
+                style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp),
+                fontWeight = FontWeight.Black,
+                color = Nokia5200ShellColors.KeyLabelDark
+            )
         }
     }
 }

@@ -26,25 +26,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.retrophonedetox.domain.model.NokiaMenuItem
-import com.retrophonedetox.ui.theme.NokiaColors
+import com.retrophonedetox.ui.theme.Nokia5200ShellColors
+import com.retrophonedetox.ui.theme.NokiaLcdPalette
 
 /**
- * US 1.1 & US 1.2 - Il Display LCD Monocromatico del Nokia (occupa l'80% superiore dello schermo).
- *
- * Caratteristiche:
- * 1. Effetto griglia a cristalli liquidi disegnato tramite Canvas.
- * 2. Indicatori laterali a blocchetti stile Nokia 3110/3310 (Segnale a sinistra, Batteria a destra).
- * 3. Intestazione con Operatore ("MODALITA NOKIA"), Orologio digitale e numero indice del menu (es. "1-6").
- * 4. Lista delle voci di menu con inversione cromatica LCD sulla riga selezionata.
- * 5. Touch completamente disabilitato sul display (`consumeAllTouchEvents`): si naviga SOLO col tastierino!
+ * US 1.1 & US 1.2 - Sezione Superiore (80%) con:
+ * - Bordino superiore bianco/avorio con i due trattini altoparlante al centro (spazio fotocamera)
+ *   e il logo "NOKIA" scritto in nero a destra.
+ * - Schermo LCD centrale a tutta larghezza (senza bande rosse laterali) racchiuso nella cornice nera.
+ * - Touch completamente disabilitato sul display LCD: si naviga solo con il tastierino fisico.
  */
 @Composable
 fun NokiaLcdDisplay(
@@ -55,148 +55,225 @@ fun NokiaLcdDisplay(
     signalBars: Int,
     isDetoxActive: Boolean,
     openedItem: NokiaMenuItem?,
+    themeCursorIndex: Int,
     statusBanner: String?,
+    palette: NokiaLcdPalette,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
 
-    // Quando l'utente preme SU o GIÙ sul tastierino, scorriamo automaticamente la lista LCD
-    LaunchedEffect(selectedIndex) {
-        if (menuItems.isNotEmpty() && selectedIndex in menuItems.indices) {
+    LaunchedEffect(selectedIndex, openedItem) {
+        if (openedItem == null && menuItems.isNotEmpty() && selectedIndex in menuItems.indices) {
             listState.animateScrollToItem(selectedIndex)
         }
     }
 
-    // Cornice esterna argentata + vetro LCD incassato
-    Box(
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 10.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(NokiaColors.BezelSilver)
-            .border(3.dp, NokiaColors.KeyBorderDark, RoundedCornerShape(18.dp))
-            .padding(8.dp)
+            .background(Nokia5200ShellColors.ShellIvory)
     ) {
-        // Schermo a cristalli liquidi vero e proprio
+        // 1. Bordino superiore bianco/avorio: 2 trattini al centro (ai lati della fotocamera) + scritta NOKIA nera a destra
+        NokiaTopIvoryHeaderBar()
+
+        // 2. Schermo centrale intero a tutta larghezza con cornice nera
         Box(
             modifier = Modifier
-                .fillMaxSize()
-                .clip(RoundedCornerShape(10.dp))
-                .background(NokiaColors.LcdBackground)
-                .border(3.dp, NokiaColors.LcdInk, RoundedCornerShape(10.dp))
-                // US 1.2: Blocca ogni tocco o scorrimento col dito sul display LCD!
-                .pointerInput(Unit) {
-                    awaitPointerEventScope {
-                        while (true) {
-                            val event = awaitPointerEvent(PointerEventPass.Initial)
-                            event.changes.forEach { it.consume() }
-                        }
-                    }
-                }
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Nokia5200ShellColors.ScreenBezelBlack)
+                .padding(horizontal = 10.dp, vertical = 10.dp)
         ) {
-            // Effetto matrice di pixel (Scanlines orizzontali leggere)
-            LcdPixelMatrixOverlay()
-
-            Row(
+            // Vetro LCD Anti-Luce Blu a tutta larghezza
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 8.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Barra verticale sinistra: Tacche del Segnale (4 blocchetti stile Nokia)
-                NokiaVerticalBarMeter(
-                    activeBars = signalBars,
-                    maxBars = 4,
-                    bottomSymbol = "Ψ", // Simbolo antenna
-                    modifier = Modifier.fillMaxHeight()
-                )
-
-                // Contenuto centrale del Display LCD
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .padding(horizontal = 8.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
-                ) {
-                    // 1. Barra superiore: Stato Detox + Indice Menu + Orologio
-                    val currentMenuNumber = if (openedItem != null) {
-                        "1-${openedItem.indexNumber}"
-                    } else {
-                        "1-${(selectedIndex + 1).coerceAtMost(menuItems.size)}"
-                    }
-
-                    NokiaTopHeader(
-                        detoxActive = isDetoxActive,
-                        menuIndexText = currentMenuNumber,
-                        timeText = currentTime
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    // 2. Corpo principale del Display: Menu scorrevole oppure Schermata aperta
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                    ) {
-                        if (openedItem != null) {
-                            // Vista dettaglio quando si preme OK su una voce (in attesa di US 1.3 / 1.4)
-                            NokiaOpenedItemView(
-                                item = openedItem,
-                                statusBanner = statusBanner
-                            )
-                        } else {
-                            // Lista Menu principale Nokia
-                            LazyColumn(
-                                state = listState,
-                                userScrollEnabled = false, // Disabilita lo scroll touch
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                itemsIndexed(menuItems) { index, item ->
-                                    NokiaMenuRow(
-                                        item = item,
-                                        isSelected = (index == selectedIndex)
-                                    )
-                                }
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(palette.lcdBackground)
+                    .border(2.dp, palette.lcdInk, RoundedCornerShape(6.dp))
+                    // US 1.2: Blocca ogni tocco o scorrimento col dito sul display LCD
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                event.changes.forEach { it.consume() }
                             }
                         }
                     }
+            ) {
+                // Trama pixel cristalli liquidi adattata al tema corrente
+                LcdPixelMatrixOverlay(shadowColor = palette.lcdShadow)
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Barra verticale sinistra: 4 Tacche del Segnale
+                    NokiaVerticalBarMeter(
+                        activeBars = signalBars,
+                        maxBars = 4,
+                        bottomSymbol = "Ψ",
+                        inkColor = palette.lcdInk,
+                        shadowColor = palette.lcdShadow,
+                        modifier = Modifier.fillMaxHeight()
+                    )
 
-                    // 3. Barra inferiore con descrizione voce + etichetta Soft-Key centrale ("Seleziona" / "Indietro")
-                    val selectedItem = menuItems.getOrNull(selectedIndex)
-                    NokiaBottomSoftKeyBar(
-                        subtitle = statusBanner ?: selectedItem?.description.orEmpty(),
-                        softKeyLabel = if (openedItem != null) "Indietro" else "Seleziona"
+                    // Contenuto centrale del Display LCD
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .padding(horizontal = 8.dp),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        val currentMenuNumber = if (openedItem != null) {
+                            if (openedItem.id == "theme") {
+                                "7-${themeCursorIndex + 1}"
+                            } else {
+                                "1-${openedItem.indexNumber}"
+                            }
+                        } else {
+                            "1-${(selectedIndex + 1).coerceAtMost(menuItems.size)}"
+                        }
+
+                        NokiaTopHeader(
+                            detoxActive = isDetoxActive,
+                            menuIndexText = currentMenuNumber,
+                            timeText = currentTime,
+                            inkColor = palette.lcdInk
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                        ) {
+                            when {
+                                // Sottomenu 7. Tema Display: permette di scegliere i 4 temi direttamente sullo schermo LCD!
+                                openedItem?.id == "theme" -> {
+                                    NokiaThemeSelectorSubMenu(
+                                        selectedThemeIndex = themeCursorIndex,
+                                        activePalette = palette
+                                    )
+                                }
+
+                                // Altre voci aperte (Telefono, Messaggi, WhatsApp, ecc.)
+                                openedItem != null -> {
+                                    NokiaOpenedItemView(
+                                        item = openedItem,
+                                        statusBanner = statusBanner,
+                                        inkColor = palette.lcdInk
+                                    )
+                                }
+
+                                // Menu principale Nokia (voci 1..7)
+                                else -> {
+                                    LazyColumn(
+                                        state = listState,
+                                        userScrollEnabled = false,
+                                        verticalArrangement = Arrangement.spacedBy(5.dp),
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        itemsIndexed(menuItems) { index, item ->
+                                            NokiaMenuRow(
+                                                text = "${item.indexNumber}. ${item.title}",
+                                                isSelected = (index == selectedIndex),
+                                                palette = palette
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        val selectedItem = menuItems.getOrNull(selectedIndex)
+                        NokiaBottomSoftKeyBar(
+                            subtitle = statusBanner ?: selectedItem?.description.orEmpty(),
+                            leftSoftKey = "Home",
+                            rightSoftKey = "Indietro",
+                            inkColor = palette.lcdInk
+                        )
+                    }
+
+                    // Barra verticale destra: 4 Tacche della Batteria
+                    NokiaVerticalBarMeter(
+                        activeBars = batteryBars,
+                        maxBars = 4,
+                        bottomSymbol = "▣",
+                        inkColor = palette.lcdInk,
+                        shadowColor = palette.lcdShadow,
+                        modifier = Modifier.fillMaxHeight()
                     )
                 }
-
-                // Barra verticale destra: Tacche della Batteria (4 blocchetti stile Nokia)
-                NokiaVerticalBarMeter(
-                    activeBars = batteryBars,
-                    maxBars = 4,
-                    bottomSymbol = "▣", // Simbolo batteria
-                    modifier = Modifier.fillMaxHeight()
-                )
             }
         }
     }
 }
 
 /**
- * Disegna una leggera trama di righe a cristalli liquidi sullo sfondo del display.
+ * Bordino superiore bianco/avorio:
+ * - Al centro: i due trattini altoparlante (con lo spazio in mezzo per la fotocamera reale del telefono).
+ * - A destra: la scritta "NOKIA" in nero.
  */
 @Composable
-private fun LcdPixelMatrixOverlay() {
+private fun NokiaTopIvoryHeaderBar() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Nokia5200ShellColors.ShellIvory)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        // I due trattini centrali (ai lati della fotocamera frontale)
+        Row(
+            modifier = Modifier.align(Alignment.Center),
+            horizontalArrangement = Arrangement.spacedBy(34.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(22.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Nokia5200ShellColors.ScreenBezelBlack)
+            )
+            Box(
+                modifier = Modifier
+                    .width(22.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Nokia5200ShellColors.ScreenBezelBlack)
+            )
+        }
+
+        // Scritta NOKIA nera a destra nel bordino bianco
+        Text(
+            text = "NOKIA",
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Black,
+            fontSize = 14.sp,
+            letterSpacing = 1.5.sp,
+            color = Nokia5200ShellColors.ScreenBezelBlack,
+            modifier = Modifier.align(Alignment.CenterEnd)
+        )
+    }
+}
+
+@Composable
+private fun LcdPixelMatrixOverlay(shadowColor: Color) {
     Canvas(modifier = Modifier.fillMaxSize()) {
         val stepPx = 4.dp.toPx()
         var y = 0f
         while (y < size.height) {
             drawLine(
-                color = NokiaColors.LcdBackgroundShadow,
+                color = shadowColor.copy(alpha = 0.45f),
                 start = Offset(0f, y),
                 end = Offset(size.width, y),
                 strokeWidth = 1.dp.toPx()
@@ -206,14 +283,12 @@ private fun LcdPixelMatrixOverlay() {
     }
 }
 
-/**
- * Barra superiore del display LCD con nome modalità, numero indice in alto a destra e orologio.
- */
 @Composable
 private fun NokiaTopHeader(
     detoxActive: Boolean,
     menuIndexText: String,
-    timeText: String
+    timeText: String,
+    inkColor: Color
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -222,18 +297,19 @@ private fun NokiaTopHeader(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = if (detoxActive) "🔒 NOKIA DETOX" else "MODALITÀ NOKIA",
+                text = if (detoxActive) "🔒 MODALITÀ NOKIA" else "MODALITÀ NOKIA",
                 style = MaterialTheme.typography.labelMedium,
+                color = inkColor,
                 fontWeight = FontWeight.Black
             )
             Text(
                 text = menuIndexText,
                 style = MaterialTheme.typography.labelMedium,
+                color = inkColor,
                 fontWeight = FontWeight.Black
             )
         }
 
-        // Linea divisoria pixelata + Orologio
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -245,35 +321,32 @@ private fun NokiaTopHeader(
                 modifier = Modifier
                     .weight(1f)
                     .height(2.dp)
-                    .background(NokiaColors.LcdInk)
+                    .background(inkColor)
             )
             Text(
                 text = " $timeText ",
                 style = MaterialTheme.typography.labelMedium,
+                color = inkColor,
                 fontWeight = FontWeight.Black
             )
             Box(
                 modifier = Modifier
                     .width(16.dp)
                     .height(2.dp)
-                    .background(NokiaColors.LcdInk)
+                    .background(inkColor)
             )
         }
     }
 }
 
-/**
- * Singola riga del menu testuale.
- * Quando è selezionata (`isSelected == true`), inverte i colori proprio come sui veri schermi LCD Nokia:
- * sfondo nero-verde (`LcdInk`) e testo verde oliva (`LcdBackground`).
- */
 @Composable
 private fun NokiaMenuRow(
-    item: NokiaMenuItem,
-    isSelected: Boolean
+    text: String,
+    isSelected: Boolean,
+    palette: NokiaLcdPalette
 ) {
-    val backgroundColor = if (isSelected) NokiaColors.LcdInk else NokiaColors.LcdBackground
-    val contentColor = if (isSelected) NokiaColors.LcdBackground else NokiaColors.LcdInk
+    val backgroundColor = if (isSelected) palette.lcdInk else palette.lcdBackground
+    val contentColor = if (isSelected) palette.lcdBackground else palette.lcdInk
 
     Row(
         modifier = Modifier
@@ -281,19 +354,19 @@ private fun NokiaMenuRow(
             .background(backgroundColor)
             .border(
                 width = if (isSelected) 2.dp else 1.dp,
-                color = NokiaColors.LcdInk
+                color = palette.lcdInk
             )
-            .padding(horizontal = 8.dp, vertical = 10.dp),
+            .padding(horizontal = 8.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = if (isSelected) "▶" else " ",
             style = MaterialTheme.typography.titleLarge,
             color = contentColor,
-            modifier = Modifier.width(24.dp)
+            modifier = Modifier.width(22.dp)
         )
         Text(
-            text = "${item.indexNumber}. ${item.title}",
+            text = text,
             style = MaterialTheme.typography.titleLarge,
             color = contentColor,
             maxLines = 1,
@@ -304,17 +377,47 @@ private fun NokiaMenuRow(
 }
 
 /**
- * Schermata interna mostrata sul display LCD quando si preme OK su una voce del menu.
+ * Sottomenu interno per la voce "7. Tema Display":
+ * mostra i 4 temi Anti-Luce Blu direttamente sullo schermo LCD.
  */
+@Composable
+private fun NokiaThemeSelectorSubMenu(
+    selectedThemeIndex: Int,
+    activePalette: NokiaLcdPalette
+) {
+    val themes = NokiaLcdPalette.entries
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Text(
+            text = "SCEGLI TEMA DISPLAY:",
+            style = MaterialTheme.typography.labelMedium,
+            color = activePalette.lcdInk,
+            fontWeight = FontWeight.Black
+        )
+        themes.forEachIndexed { idx, themeOption ->
+            val checkMark = if (themeOption == activePalette) "✓" else " "
+            NokiaMenuRow(
+                text = "$checkMark ${idx + 1}. ${themeOption.displayName}",
+                isSelected = (idx == selectedThemeIndex),
+                palette = activePalette
+            )
+        }
+    }
+}
+
 @Composable
 private fun NokiaOpenedItemView(
     item: NokiaMenuItem,
-    statusBanner: String?
+    statusBanner: String?,
+    inkColor: Color
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .border(2.dp, NokiaColors.LcdInk)
+            .border(2.dp, inkColor)
             .padding(12.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
@@ -322,30 +425,37 @@ private fun NokiaOpenedItemView(
         Text(
             text = "[ ${item.title.uppercase()} ]",
             style = MaterialTheme.typography.titleLarge,
+            color = inkColor,
             textAlign = TextAlign.Center
         )
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
         Text(
             text = statusBanner ?: item.description,
             style = MaterialTheme.typography.bodyLarge,
+            color = inkColor,
             textAlign = TextAlign.Center
         )
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(14.dp))
         Text(
-            text = "Premi il tasto ROSSO (C)\nper tornare al menu",
+            text = "Premi Indietro (trattino blu dx)\no Tasto Rosso per il menu",
             style = MaterialTheme.typography.labelMedium,
+            color = inkColor,
             textAlign = TextAlign.Center
         )
     }
 }
 
 /**
- * Barra inferiore del display LCD con testo di stato e l'etichetta centrale del tasto Soft-Key.
+ * Barra inferiore autentica anni 2000:
+ * - In basso a sinistra (sopra il tasto funzione blu sinistro): "Seleziona"
+ * - In basso a destra (sopra il tasto funzione blu destro): "Indietro"
  */
 @Composable
 private fun NokiaBottomSoftKeyBar(
     subtitle: String,
-    softKeyLabel: String
+    leftSoftKey: String,
+    rightSoftKey: String,
+    inkColor: Color
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -354,40 +464,51 @@ private fun NokiaBottomSoftKeyBar(
         Text(
             text = subtitle,
             style = MaterialTheme.typography.labelMedium,
+            color = inkColor,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center
         )
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(3.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(2.dp)
-                .background(NokiaColors.LcdInk)
+                .background(inkColor)
         )
         Spacer(modifier = Modifier.height(4.dp))
-        // Etichetta centrale tipica del Nokia 3310 sopra il tasto Navi-Key
-        Text(
-            text = "[ $softKeyLabel ]",
-            style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp),
-            fontWeight = FontWeight.Black,
-            textAlign = TextAlign.Center
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = leftSoftKey,
+                style = MaterialTheme.typography.labelMedium.copy(fontSize = 14.sp),
+                color = inkColor,
+                fontWeight = FontWeight.Black
+            )
+            Text(
+                text = rightSoftKey,
+                style = MaterialTheme.typography.labelMedium.copy(fontSize = 14.sp),
+                color = inkColor,
+                fontWeight = FontWeight.Black
+            )
+        }
     }
 }
 
-/**
- * Indicatore verticale a tacche (usato a sinistra per il segnale e a destra per la batteria).
- */
 @Composable
 private fun NokiaVerticalBarMeter(
     activeBars: Int,
     maxBars: Int,
     bottomSymbol: String,
+    inkColor: Color,
+    shadowColor: Color,
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = modifier.width(14.dp),
+        modifier = modifier.width(12.dp),
         verticalArrangement = Arrangement.SpaceBetween,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -396,15 +517,14 @@ private fun NokiaVerticalBarMeter(
             verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.Bottom),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Disegna i blocchetti dall'alto (4) verso il basso (1)
             for (barLevel in maxBars downTo 1) {
                 val isFilled = barLevel <= activeBars
                 Box(
                     modifier = Modifier
-                        .width(10.dp)
-                        .height(18.dp)
-                        .background(if (isFilled) NokiaColors.LcdInk else NokiaColors.LcdBackgroundShadow)
-                        .border(1.dp, NokiaColors.LcdInk)
+                        .width(9.dp)
+                        .height(16.dp)
+                        .background(if (isFilled) inkColor else shadowColor)
+                        .border(1.dp, inkColor)
                 )
             }
         }
@@ -412,6 +532,7 @@ private fun NokiaVerticalBarMeter(
         Text(
             text = bottomSymbol,
             style = MaterialTheme.typography.labelMedium,
+            color = inkColor,
             fontWeight = FontWeight.Black
         )
     }
