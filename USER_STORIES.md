@@ -5,8 +5,8 @@ Lo sviluppo di **RetroPhone Detox** è suddiviso in **5 Epic** incrementali. Ogn
 ---
 
 ## 📦 EPIC 1: Interfaccia Nokia 3110 & Lancio App Reali (Sprint 1)
-- [ ] **US 1.1 - Layout Retrò 80/20:** Creazione della schermata principale divisa nell'80% superiore (Display LCD monocromatico stile Nokia con barra batteria a tacche, segnale, orologio e menu testuale) e 20% inferiore (Tastierino con D-Pad direzionale Su/Giù, Tasto OK/Menu, Tasto Verde Chiamata e Tasto Rosso Indietro/Chiudi).
-- [ ] **US 1.2 - Navigazione Fisica e Feedback Aptico:** Navigazione del menu LCD esclusivamente tramite i pulsanti del tastierino inferiore con vibrazione fisica (`HapticFeedback`) a ogni pressione, disabilitando lo scrolling touch sul display LCD.
+- [x] **US 1.1 - Layout Retrò 80/20:** Creazione della schermata principale divisa nell'80% superiore (Display LCD monocromatico stile Nokia con barra batteria a tacche, segnale, orologio e menu testuale) e 20% inferiore (Tastierino con D-Pad direzionale Su/Giù, Tasto OK/Menu, Tasto Verde Chiamata e Tasto Rosso Indietro/Chiudi).
+- [x] **US 1.2 - Navigazione Fisica e Feedback Aptico:** Navigazione del menu LCD esclusivamente tramite i pulsanti del tastierino inferiore con vibrazione fisica (`HapticFeedback`) a ogni pressione, disabilitando lo scrolling touch sul display LCD.
 - [ ] **US 1.3 - Whitelist & Lancio App Vere (Stile Super Risparmio Energetico):** Selezione delle app consentite installate sul dispositivo (es. Telefono, Messaggi, WhatsApp) e apertura immediata tramite `Intent` di sistema quando selezionate dal menu del Nokia.
 - [ ] **US 1.4 - Pannello Utilità Connessioni:** Voce di menu interna nel Nokia per accedere rapidamente agli switch di Wi-Fi, Bluetooth e Hotspot senza esporre il menu generale delle Impostazioni.
 
