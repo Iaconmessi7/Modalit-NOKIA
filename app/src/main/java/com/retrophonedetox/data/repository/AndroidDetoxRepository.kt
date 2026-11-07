@@ -16,10 +16,14 @@ import com.retrophonedetox.domain.model.ConnectionOption
 import com.retrophonedetox.domain.model.DetoxSchedule
 import com.retrophonedetox.domain.repository.AppLaunchResult
 import com.retrophonedetox.domain.repository.DetoxRepository
+import com.retrophonedetox.domain.strategy.CustodianCodeStrategy
 import com.retrophonedetox.service.DetoxAlarmReceiver
 import com.retrophonedetox.service.DetoxGuardService
 import com.retrophonedetox.ui.theme.NokiaLcdPalette
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 /**
  * Implementazione concreta del Repository Android per Sprint 1, Sprint 2 e Sprint 3 (US 3.1 & US 3.2).
@@ -310,6 +314,10 @@ class AndroidDetoxRepository(
 
     override fun isDetoxBlockingActive(): Boolean {
         clearExpiredQuickTimerIfNeeded()
+        clearExpiredEmergencyPauseIfNeeded()
+        // US 4.1: Se è in corso una Pausa di Emergenza (5 min), il telefono è temporaneamente libero
+        if (getRemainingEmergencyPauseMinutes() > 0) return false
+
         // Il blocco è attivo se:
         // 1. È attivo un timer rapido manuale (US 3.1), oppure
         // 2. Siamo dentro una fascia oraria programmata attiva (US 3.2), oppure
@@ -565,6 +573,108 @@ class AndroidDetoxRepository(
         prefs.edit().putString(KEY_PALETTE_NAME, palette.name).apply()
     }
 
+    /**
+     * US 4.1 - Contatore giornaliero delle Pause di Emergenza (si azzera ogni giorno a mezzanotte).
+     */
+    override fun getUsedEmergencyPausesToday(): Int {
+        val todayTag = currentDateTag()
+        val savedDay = prefs.getString(KEY_EMERGENCY_PAUSE_DATE, null)
+        if (savedDay != todayTag) {
+            prefs.edit()
+                .putString(KEY_EMERGENCY_PAUSE_DATE, todayTag)
+                .putInt(KEY_EMERGENCY_PAUSE_USED_COUNT, 0)
+                .apply()
+            return 0
+        }
+        return prefs.getInt(KEY_EMERGENCY_PAUSE_USED_COUNT, 0)
+    }
+
+    override fun getMaxDailyEmergencyPauses(): Int = MAX_DAILY_EMERGENCY_PAUSES
+
+    override fun getRemainingEmergencyPauseMinutes(): Int {
+        val endTimeMs = prefs.getLong(KEY_EMERGENCY_PAUSE_END_MS, 0L)
+        val remainingMs = endTimeMs - System.currentTimeMillis()
+        return if (remainingMs > 0L) {
+            ((remainingMs + 59_999L) / 60_000L).toInt()
+        } else {
+            0
+        }
+    }
+
+    override fun clearExpiredEmergencyPauseIfNeeded() {
+        val endTimeMs = prefs.getLong(KEY_EMERGENCY_PAUSE_END_MS, 0L)
+        if (endTimeMs > 0L && System.currentTimeMillis() >= endTimeMs) {
+            prefs.edit().putLong(KEY_EMERGENCY_PAUSE_END_MS, 0L).apply()
+        }
+    }
+
+    /**
+     * US 4.1 - Avvia la Pausa di Emergenza di 5 minuti se il limite giornaliero (max 2/giorno) non è esaurito.
+     */
+    override fun startEmergencyPause(): Boolean {
+        val usedToday = getUsedEmergencyPausesToday()
+        if (usedToday >= MAX_DAILY_EMERGENCY_PAUSES) {
+            return false
+        }
+        val endTimeMs = System.currentTimeMillis() + EMERGENCY_PAUSE_MINUTES * 60_000L
+        prefs.edit()
+            .putString(KEY_EMERGENCY_PAUSE_DATE, currentDateTag())
+            .putInt(KEY_EMERGENCY_PAUSE_USED_COUNT, usedToday + 1)
+            .putLong(KEY_EMERGENCY_PAUSE_END_MS, endTimeMs)
+            .apply()
+
+        scheduleSystemAlarm(
+            triggerAtMillis = endTimeMs,
+            action = DetoxAlarmReceiver.ACTION_ALARM_PAUSE_EXPIRED,
+            requestCode = REQ_CODE_EMERGENCY_PAUSE
+        )
+        return true
+    }
+
+    /**
+     * US 4.3 - Restituisce o genera il Codice Custode alfanumerico di 20 caratteri
+     * (`XXXX-XXXX-XXXX-XXXX-XXXX`).
+     */
+    override fun getOrCreateCustodianCode(): String {
+        val existing = prefs.getString(KEY_CUSTODIAN_CODE_20, null)
+        if (!existing.isNullOrBlank()) {
+            return existing
+        }
+        val generated = CustodianCodeStrategy.generate20CharCode()
+        prefs.edit().putString(KEY_CUSTODIAN_CODE_20, generated).apply()
+        return generated
+    }
+
+    override fun regenerateCustodianCode(): String {
+        val generated = CustodianCodeStrategy.generate20CharCode()
+        prefs.edit().putString(KEY_CUSTODIAN_CODE_20, generated).apply()
+        return generated
+    }
+
+    override fun isCustodianUnlocked(): Boolean {
+        return getRemainingCustodianUnlockMinutes() > 0
+    }
+
+    override fun getRemainingCustodianUnlockMinutes(): Int {
+        val untilMs = prefs.getLong(KEY_CUSTODIAN_UNLOCK_UNTIL_MS, 0L)
+        val remainingMs = untilMs - System.currentTimeMillis()
+        return if (remainingMs > 0L) {
+            ((remainingMs + 59_999L) / 60_000L).toInt()
+        } else {
+            0
+        }
+    }
+
+    override fun grantCustodianUnlock(durationMinutes: Int) {
+        val untilMs = System.currentTimeMillis() + durationMinutes * 60_000L
+        prefs.edit().putLong(KEY_CUSTODIAN_UNLOCK_UNTIL_MS, untilMs).apply()
+    }
+
+    private fun currentDateTag(): String {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        return sdf.format(Date())
+    }
+
     companion object {
         private const val PREFS_NAME = "modalita_nokia_prefs"
         private const val KEY_ENABLED_APP_IDS = "enabled_whitelist_app_ids"
@@ -576,8 +686,18 @@ class AndroidDetoxRepository(
         private const val KEY_LAST_BLOCKED_APP = "last_blocked_app_name"
         private const val KEY_BLOCKED_COUNT = "blocked_attempts_count"
 
+        private const val KEY_EMERGENCY_PAUSE_DATE = "emergency_pause_date_tag"
+        private const val KEY_EMERGENCY_PAUSE_USED_COUNT = "emergency_pause_used_count"
+        private const val KEY_EMERGENCY_PAUSE_END_MS = "emergency_pause_end_ms"
+        private const val KEY_CUSTODIAN_CODE_20 = "custodian_code_20_chars"
+        private const val KEY_CUSTODIAN_UNLOCK_UNTIL_MS = "custodian_unlock_until_ms"
+
+        const val MAX_DAILY_EMERGENCY_PAUSES = 2
+        const val EMERGENCY_PAUSE_MINUTES = 5
+
         private const val REQ_CODE_QUICK_TIMER = 1001
         private const val REQ_CODE_SCHEDULE_START = 1002
         private const val REQ_CODE_SCHEDULE_END = 1003
+        private const val REQ_CODE_EMERGENCY_PAUSE = 1004
     }
 }

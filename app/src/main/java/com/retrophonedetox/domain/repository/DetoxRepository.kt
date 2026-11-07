@@ -49,6 +49,20 @@ interface DetoxRepository {
     fun isAnyScheduleCurrentlyActive(): Boolean
     fun syncScheduledAlarms()
 
+    /** US 4.1 - Finestra di Pausa di Emergenza Limitata (5 min, max 2/giorno) */
+    fun getUsedEmergencyPausesToday(): Int
+    fun getMaxDailyEmergencyPauses(): Int
+    fun getRemainingEmergencyPauseMinutes(): Int
+    fun clearExpiredEmergencyPauseIfNeeded()
+    fun startEmergencyPause(): Boolean
+
+    /** US 4.3 - Il "Custodian System" (Codice Alfanumerico a 20 Caratteri) */
+    fun getOrCreateCustodianCode(): String
+    fun regenerateCustodianCode(): String
+    fun isCustodianUnlocked(): Boolean
+    fun getRemainingCustodianUnlockMinutes(): Int
+    fun grantCustodianUnlock(durationMinutes: Int = 5)
+
     /** Stato hardware e preferenze tema Anti-Luce Blu */
     fun getBatteryBars(): Int
     fun getSavedPalette(): NokiaLcdPalette

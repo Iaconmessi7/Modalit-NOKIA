@@ -40,13 +40,14 @@ import com.retrophonedetox.domain.model.ConnectionOption
 import com.retrophonedetox.domain.model.DetoxSchedule
 import com.retrophonedetox.domain.model.NokiaMenuItem
 import com.retrophonedetox.domain.model.QuickTimerPreset
+import com.retrophonedetox.domain.strategy.UnlockChallenge
 import com.retrophonedetox.ui.theme.Nokia5200ShellColors
 import com.retrophonedetox.ui.theme.NokiaLcdPalette
 import com.retrophonedetox.ui.viewmodel.NokiaViewModel
 
 /**
- * Sezione Superiore (80%) della Modalità NOKIA (Sprint 1 + Sprint 2 + Sprint 3):
- * Include anche la schermata "Orari Detox" (US 3.1 Timer Rapido + US 3.2 Fasce Orarie Sveglia).
+ * Sezione Superiore (80%) della Modalità NOKIA (Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4):
+ * Include anche "Sblocco SOS" (US 4.1 Pausa 5m max 2/gg, US 4.2 Enigma Matematico, US 4.3 Codice Custode 20 caratteri).
  */
 @Composable
 fun NokiaLcdDisplay(
@@ -54,6 +55,13 @@ fun NokiaLcdDisplay(
     configurableApps: List<AllowedApp>,
     schedules: List<DetoxSchedule>,
     remainingQuickTimerMinutes: Int,
+    usedEmergencyPausesToday: Int,
+    maxDailyEmergencyPauses: Int,
+    remainingEmergencyPauseMinutes: Int,
+    custodianCode20: String,
+    isCustodianUnlocked: Boolean,
+    remainingCustodianUnlockMinutes: Int,
+    activeChallenge: UnlockChallenge?,
     selectedIndex: Int,
     currentTime: String,
     batteryBars: Int,
@@ -156,6 +164,9 @@ fun NokiaLcdDisplay(
                         NokiaTopHeader(
                             detoxActive = isDetoxActive,
                             remainingTimerMinutes = remainingQuickTimerMinutes,
+                            remainingEmergencyPauseMinutes = remainingEmergencyPauseMinutes,
+                            isCustodianUnlocked = isCustodianUnlocked,
+                            remainingCustodianUnlockMinutes = remainingCustodianUnlockMinutes,
                             menuIndexText = currentMenuNumber,
                             timeText = currentTime,
                             inkColor = palette.lcdInk
@@ -169,6 +180,20 @@ fun NokiaLcdDisplay(
                                 .fillMaxWidth()
                         ) {
                             when (openedItem?.id) {
+                                // US 4.1, US 4.2 & US 4.3: Sottomenu "Sblocco SOS"
+                                NokiaViewModel.MENU_ID_EMERGENCY -> {
+                                    NokiaEmergencySubMenu(
+                                        usedEmergencyPausesToday = usedEmergencyPausesToday,
+                                        maxDailyEmergencyPauses = maxDailyEmergencyPauses,
+                                        remainingEmergencyPauseMinutes = remainingEmergencyPauseMinutes,
+                                        custodianCode20 = custodianCode20,
+                                        isCustodianUnlocked = isCustodianUnlocked,
+                                        activeChallenge = activeChallenge,
+                                        selectedOptionIndex = subMenuCursorIndex,
+                                        palette = palette
+                                    )
+                                }
+
                                 // US 3.1 & US 3.2: Sottomenu "Orari Detox" (Timer Rapido + Fasce Orarie Sveglia)
                                 NokiaViewModel.MENU_ID_SCHEDULE -> {
                                     NokiaScheduleSubMenu(
@@ -266,6 +291,111 @@ fun NokiaLcdDisplay(
                         modifier = Modifier.fillMaxHeight()
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * US 4.1, US 4.2 & US 4.3 - Sottomenu "8. Sblocco SOS":
+ * - Mostra le 4 opzioni di sicurezza (Pausa 5m con Enigma, Sblocco Custode 20 car., Visualizza/Rigenera Codice, Riattiva Blocco)
+ * - Oppure mostra la schermata interattiva della sfida (`MathPuzzleChallenge` o `CustodianCodeChallenge`).
+ */
+@Composable
+private fun NokiaEmergencySubMenu(
+    usedEmergencyPausesToday: Int,
+    maxDailyEmergencyPauses: Int,
+    remainingEmergencyPauseMinutes: Int,
+    custodianCode20: String,
+    isCustodianUnlocked: Boolean,
+    activeChallenge: UnlockChallenge?,
+    selectedOptionIndex: Int,
+    palette: NokiaLcdPalette
+) {
+    if (activeChallenge != null) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = activeChallenge.title,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = palette.lcdInk,
+                    fontWeight = FontWeight.Black
+                )
+                Text(
+                    text = activeChallenge.progressLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = palette.lcdInk,
+                    fontWeight = FontWeight.Black
+                )
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, palette.lcdInk)
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = activeChallenge.promptLine1,
+                    style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp),
+                    color = palette.lcdInk,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = activeChallenge.promptLine2,
+                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 14.sp),
+                    color = palette.lcdInk,
+                    fontWeight = FontWeight.Black
+                )
+            }
+            activeChallenge.options.forEachIndexed { idx, optionText ->
+                NokiaMenuRow(
+                    text = optionText,
+                    isSelected = (idx == selectedOptionIndex),
+                    palette = palette
+                )
+            }
+        }
+    } else {
+        val pauseLabel = if (remainingEmergencyPauseMinutes > 0) {
+            "1. Pausa SOS: ATTIVA (${remainingEmergencyPauseMinutes}m)"
+        } else {
+            "1. Pausa SOS 5m ($usedEmergencyPausesToday/$maxDailyEmergencyPauses oggi) 🧩"
+        }
+        val custodianLabel = if (isCustodianUnlocked) {
+            "2. Custode: SBLOCCATO ✓"
+        } else {
+            "2. Sblocco Custode (20 Car.) 🔑"
+        }
+        val shortCodePreview = custodianCode20.take(9) + "..."
+        val rows = listOf(
+            pauseLabel,
+            custodianLabel,
+            "3. Codice: $shortCodePreview 📜",
+            "4. Riattiva Blocco Nokia 🔒"
+        )
+
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = "SBLOCCO SOS & CUSTODE (EPIC 4):",
+                style = MaterialTheme.typography.labelMedium,
+                color = palette.lcdInk,
+                fontWeight = FontWeight.Black
+            )
+            rows.forEachIndexed { idx, rowText ->
+                NokiaMenuRow(
+                    text = rowText,
+                    isSelected = (idx == selectedOptionIndex),
+                    palette = palette
+                )
             }
         }
     }
@@ -431,11 +561,16 @@ private fun LcdPixelMatrixOverlay(shadowColor: Color) {
 private fun NokiaTopHeader(
     detoxActive: Boolean,
     remainingTimerMinutes: Int,
+    remainingEmergencyPauseMinutes: Int,
+    isCustodianUnlocked: Boolean,
+    remainingCustodianUnlockMinutes: Int,
     menuIndexText: String,
     timeText: String,
     inkColor: Color
 ) {
     val leftTitle = when {
+        remainingEmergencyPauseMinutes > 0 -> "🔓 PAUSA SOS (${remainingEmergencyPauseMinutes}m)"
+        isCustodianUnlocked -> "🔑 CUSTODE (${remainingCustodianUnlockMinutes}m)"
         remainingTimerMinutes > 0 -> "🔒 NOKIA (⏱${remainingTimerMinutes}m)"
         detoxActive -> "🔒 MODALITÀ NOKIA"
         else -> "🔓 NOKIA (PAUSA)"

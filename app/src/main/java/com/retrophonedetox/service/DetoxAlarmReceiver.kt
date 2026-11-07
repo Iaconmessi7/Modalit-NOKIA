@@ -49,6 +49,24 @@ class DetoxAlarmReceiver : BroadcastReceiver() {
                 repository.syncScheduledAlarms()
             }
 
+            ACTION_ALARM_PAUSE_EXPIRED -> {
+                // US 4.1: Scaduti i 5 minuti di Pausa SOS, riattiva automaticamente la Modalità NOKIA
+                repository.clearExpiredEmergencyPauseIfNeeded()
+                repository.setDetoxBlockingActive(true)
+                val launchNokia = Intent(context, MainActivity::class.java).apply {
+                    addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    )
+                    putExtra(
+                        DetoxGuardService.EXTRA_BLOCKED_BANNER,
+                        "🔒 Pausa SOS 5m terminata: Blocco riattivato"
+                    )
+                }
+                context.startActivity(launchNokia)
+            }
+
             Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED -> {
                 // Al riavvio dello smartphone, riprogramma tutte le sveglie Detox attive
                 repository.clearExpiredQuickTimerIfNeeded()
@@ -64,5 +82,6 @@ class DetoxAlarmReceiver : BroadcastReceiver() {
         const val ACTION_ALARM_START_DETOX = "com.retrophonedetox.action.ALARM_START_DETOX"
         const val ACTION_ALARM_END_DETOX = "com.retrophonedetox.action.ALARM_END_DETOX"
         const val ACTION_ALARM_TIMER_EXPIRED = "com.retrophonedetox.action.ALARM_TIMER_EXPIRED"
+        const val ACTION_ALARM_PAUSE_EXPIRED = "com.retrophonedetox.action.ALARM_PAUSE_EXPIRED"
     }
 }

@@ -25,9 +25,9 @@ Lo sviluppo di **RetroPhone Detox** è suddiviso in **5 Epic** incrementali. Ogn
 ---
 
 ## 🔐 EPIC 4: Sicurezza "Digital Detox" Anti-Sabotaggio (Sprint 4)
-- [ ] **US 4.1 - Finestra di Pausa Limitata:** Possibilità di richiedere una "Pausa di Emergenza" (es. 5 minuti) con contatore giornaliero rigido (es. max 2 al giorno).
-- [ ] **US 4.2 - Enigmi Cognitivi di Sblocco:** Schermata in stile LCD Nokia che richiede la risoluzione di calcoli matematici/logici a tempo prima di concedere la pausa di emergenza.
-- [ ] **US 4.3 - Il "Custodian System" (Codice a 20 Caratteri):** Generazione e verifica di una stringa alfanumerica di 20 caratteri necessaria per modificare la Whitelist o disattivare una fascia oraria protetta prima della scadenza.
+- [x] **US 4.1 - Finestra di Pausa Limitata:** Possibilità di richiedere una "Pausa di Emergenza" (es. 5 minuti) con contatore giornaliero rigido (es. max 2 al giorno).
+- [x] **US 4.2 - Enigmi Cognitivi di Sblocco:** Schermata in stile LCD Nokia che richiede la risoluzione di calcoli matematici/logici a tempo prima di concedere la pausa di emergenza.
+- [x] **US 4.3 - Il "Custodian System" (Codice a 20 Caratteri):** Generazione e verifica di una stringa alfanumerica di 20 caratteri necessaria per modificare la Whitelist o disattivare una fascia oraria protetta prima della scadenza.
 
 ---
 

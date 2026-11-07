@@ -11,6 +11,11 @@ import com.retrophonedetox.domain.model.NokiaMenuItem
 import com.retrophonedetox.domain.model.QuickTimerPreset
 import com.retrophonedetox.domain.repository.AppLaunchResult
 import com.retrophonedetox.domain.repository.DetoxRepository
+import com.retrophonedetox.domain.strategy.CustodianCodeChallenge
+import com.retrophonedetox.domain.strategy.CustodianCodeStrategy
+import com.retrophonedetox.domain.strategy.MathPuzzleChallenge
+import com.retrophonedetox.domain.strategy.MathPuzzleStrategy
+import com.retrophonedetox.domain.strategy.UnlockChallenge
 import com.retrophonedetox.ui.theme.NokiaLcdPalette
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,12 +26,19 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Stato immutabile della schermata Nokia (Sprint 1 + Sprint 2 + Sprint 3).
+ * Stato immutabile della schermata Nokia (Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4).
  */
 data class NokiaUiState(
     val configurableApps: List<AllowedApp> = emptyList(),
     val schedules: List<DetoxSchedule> = emptyList(),
     val remainingQuickTimerMinutes: Int = 0,
+    val usedEmergencyPausesToday: Int = 0,
+    val maxDailyEmergencyPauses: Int = 2,
+    val remainingEmergencyPauseMinutes: Int = 0,
+    val custodianCode20: String = "",
+    val isCustodianUnlocked: Boolean = false,
+    val remainingCustodianUnlockMinutes: Int = 0,
+    val activeChallenge: UnlockChallenge? = null,
     val menuItems: List<NokiaMenuItem> = emptyList(),
     val selectedIndex: Int = 0,
     val openedItem: NokiaMenuItem? = null,
@@ -43,8 +55,11 @@ data class NokiaUiState(
 )
 
 /**
- * ViewModel principale della Modalità NOKIA (Sprint 1, 2 e 3):
- * Include anche US 3.1 (Sessioni rapide a tempo 30m / 1h / 2h) e US 3.2 (Fasce orarie automatiche stile Sveglia).
+ * ViewModel principale della Modalità NOKIA (Sprint 1, 2, 3 e 4):
+ * Include anche EPIC 4 (Sicurezza Anti-Sabotaggio):
+ * - US 4.1: Finestra di Pausa di Emergenza limitata (5 min, max 2 al giorno)
+ * - US 4.2: Enigmi Cognitivi di Sblocco (`MathPuzzleStrategy`)
+ * - US 4.3: Il "Custodian System" con Codice Alfanumerico a 20 caratteri (`CustodianCodeStrategy`)
  */
 class NokiaViewModel(
     application: Application
@@ -63,6 +78,12 @@ class NokiaViewModel(
             configurableApps = apps,
             schedules = schedules,
             remainingQuickTimerMinutes = repository.getRemainingQuickTimerMinutes(),
+            usedEmergencyPausesToday = repository.getUsedEmergencyPausesToday(),
+            maxDailyEmergencyPauses = repository.getMaxDailyEmergencyPauses(),
+            remainingEmergencyPauseMinutes = repository.getRemainingEmergencyPauseMinutes(),
+            custodianCode20 = repository.getOrCreateCustodianCode(),
+            isCustodianUnlocked = repository.isCustodianUnlocked(),
+            remainingCustodianUnlockMinutes = repository.getRemainingCustodianUnlockMinutes(),
             menuItems = buildNokiaMenuFromWhitelist(apps),
             isDetoxActive = repository.isDetoxBlockingActive(),
             isGuardPermissionEnabled = repository.isGuardServiceEnabled(),
@@ -78,6 +99,11 @@ class NokiaViewModel(
             current.copy(
                 schedules = repository.getSchedules(),
                 remainingQuickTimerMinutes = repository.getRemainingQuickTimerMinutes(),
+                usedEmergencyPausesToday = repository.getUsedEmergencyPausesToday(),
+                remainingEmergencyPauseMinutes = repository.getRemainingEmergencyPauseMinutes(),
+                custodianCode20 = repository.getOrCreateCustodianCode(),
+                isCustodianUnlocked = repository.isCustodianUnlocked(),
+                remainingCustodianUnlockMinutes = repository.getRemainingCustodianUnlockMinutes(),
                 isDetoxActive = repository.isDetoxBlockingActive(),
                 isGuardPermissionEnabled = repository.isGuardServiceEnabled(),
                 blockedAttemptsCount = repository.getBlockedAttemptsCount(),
@@ -94,16 +120,44 @@ class NokiaViewModel(
             val updatedTime = formatCurrentTime()
             val updatedBattery = repository.getBatteryBars()
             val updatedTimerMinutes = repository.getRemainingQuickTimerMinutes()
+            val updatedPauseMinutes = repository.getRemainingEmergencyPauseMinutes()
+            val updatedCustodianUnlocked = repository.isCustodianUnlocked()
+            val updatedCustodianMinutes = repository.getRemainingCustodianUnlockMinutes()
+            val updatedDetoxActive = repository.isDetoxBlockingActive()
+
             val themes = NokiaLcdPalette.entries
             val connectionOptions = ConnectionOption.entries
             val quickPresets = QuickTimerPreset.entries
-            // Nel sottomenu "Orari Detox" ci sono 3 preset rapidi (US 3.1) + 4 fasce orarie (US 3.2) = 7 righe totali
             val totalScheduleMenuRows = quickPresets.size + current.schedules.size
 
             when (key) {
                 // Tasto in Alto a Destra (▲): scorre in su
                 NokiaKey.UP -> {
                     when (current.openedItem?.id) {
+                        MENU_ID_EMERGENCY -> {
+                            val totalOptions = current.activeChallenge?.options?.size ?: 4
+                            val prev = if (current.subMenuCursorIndex - 1 < 0) {
+                                totalOptions - 1
+                            } else {
+                                current.subMenuCursorIndex - 1
+                            }
+                            current.copy(
+                                subMenuCursorIndex = prev,
+                                remainingQuickTimerMinutes = updatedTimerMinutes,
+                                remainingEmergencyPauseMinutes = updatedPauseMinutes,
+                                isCustodianUnlocked = updatedCustodianUnlocked,
+                                remainingCustodianUnlockMinutes = updatedCustodianMinutes,
+                                isDetoxActive = updatedDetoxActive,
+                                currentTime = updatedTime,
+                                batteryBars = updatedBattery,
+                                statusBanner = if (current.activeChallenge != null) {
+                                    "Seleziona con ▲/▼ e premi OK"
+                                } else {
+                                    emergencyRowSubtitle(prev, current.custodianCode20)
+                                }
+                            )
+                        }
+
                         MENU_ID_SCHEDULE -> {
                             val prev = if (current.subMenuCursorIndex - 1 < 0) {
                                 (totalScheduleMenuRows - 1).coerceAtLeast(0)
@@ -113,6 +167,8 @@ class NokiaViewModel(
                             current.copy(
                                 subMenuCursorIndex = prev,
                                 remainingQuickTimerMinutes = updatedTimerMinutes,
+                                remainingEmergencyPauseMinutes = updatedPauseMinutes,
+                                isCustodianUnlocked = updatedCustodianUnlocked,
                                 currentTime = updatedTime,
                                 batteryBars = updatedBattery,
                                 statusBanner = scheduleRowSubtitle(prev, quickPresets, current.schedules)
@@ -124,6 +180,8 @@ class NokiaViewModel(
                             current.copy(
                                 subMenuCursorIndex = prev,
                                 remainingQuickTimerMinutes = updatedTimerMinutes,
+                                remainingEmergencyPauseMinutes = updatedPauseMinutes,
+                                isCustodianUnlocked = updatedCustodianUnlocked,
                                 currentTime = updatedTime,
                                 batteryBars = updatedBattery,
                                 statusBanner = guardOptionSubtitle(prev)
@@ -155,9 +213,16 @@ class NokiaViewModel(
                             current.copy(
                                 subMenuCursorIndex = prev,
                                 remainingQuickTimerMinutes = updatedTimerMinutes,
+                                isCustodianUnlocked = updatedCustodianUnlocked,
                                 currentTime = updatedTime,
                                 batteryBars = updatedBattery,
-                                statusBanner = if (app.isEssential) "App essenziale (sempre attiva)" else "Premi OK per attivare/disattivare"
+                                statusBanner = if (app.isEssential) {
+                                    "App essenziale (sempre attiva)"
+                                } else if (updatedDetoxActive && !updatedCustodianUnlocked) {
+                                    "🔒 Protetta: richiede Codice Custode 20 car."
+                                } else {
+                                    "Premi OK per attivare/disattivare"
+                                }
                             )
                         }
 
@@ -186,6 +251,9 @@ class NokiaViewModel(
                                 current.copy(
                                     selectedIndex = prevIndex,
                                     remainingQuickTimerMinutes = updatedTimerMinutes,
+                                    remainingEmergencyPauseMinutes = updatedPauseMinutes,
+                                    isCustodianUnlocked = updatedCustodianUnlocked,
+                                    isDetoxActive = updatedDetoxActive,
                                     currentTime = updatedTime,
                                     batteryBars = updatedBattery,
                                     statusBanner = null
@@ -202,6 +270,26 @@ class NokiaViewModel(
                 // Tasto in Basso a Destra (▼): scorre in giù
                 NokiaKey.DOWN -> {
                     when (current.openedItem?.id) {
+                        MENU_ID_EMERGENCY -> {
+                            val totalOptions = current.activeChallenge?.options?.size ?: 4
+                            val next = (current.subMenuCursorIndex + 1) % totalOptions
+                            current.copy(
+                                subMenuCursorIndex = next,
+                                remainingQuickTimerMinutes = updatedTimerMinutes,
+                                remainingEmergencyPauseMinutes = updatedPauseMinutes,
+                                isCustodianUnlocked = updatedCustodianUnlocked,
+                                remainingCustodianUnlockMinutes = updatedCustodianMinutes,
+                                isDetoxActive = updatedDetoxActive,
+                                currentTime = updatedTime,
+                                batteryBars = updatedBattery,
+                                statusBanner = if (current.activeChallenge != null) {
+                                    "Seleziona con ▲/▼ e premi OK"
+                                } else {
+                                    emergencyRowSubtitle(next, current.custodianCode20)
+                                }
+                            )
+                        }
+
                         MENU_ID_SCHEDULE -> {
                             val next = if (totalScheduleMenuRows > 0) {
                                 (current.subMenuCursorIndex + 1) % totalScheduleMenuRows
@@ -209,6 +297,8 @@ class NokiaViewModel(
                             current.copy(
                                 subMenuCursorIndex = next,
                                 remainingQuickTimerMinutes = updatedTimerMinutes,
+                                remainingEmergencyPauseMinutes = updatedPauseMinutes,
+                                isCustodianUnlocked = updatedCustodianUnlocked,
                                 currentTime = updatedTime,
                                 batteryBars = updatedBattery,
                                 statusBanner = scheduleRowSubtitle(next, quickPresets, current.schedules)
@@ -220,6 +310,8 @@ class NokiaViewModel(
                             current.copy(
                                 subMenuCursorIndex = next,
                                 remainingQuickTimerMinutes = updatedTimerMinutes,
+                                remainingEmergencyPauseMinutes = updatedPauseMinutes,
+                                isCustodianUnlocked = updatedCustodianUnlocked,
                                 currentTime = updatedTime,
                                 batteryBars = updatedBattery,
                                 statusBanner = guardOptionSubtitle(next)
@@ -243,9 +335,16 @@ class NokiaViewModel(
                             current.copy(
                                 subMenuCursorIndex = next,
                                 remainingQuickTimerMinutes = updatedTimerMinutes,
+                                isCustodianUnlocked = updatedCustodianUnlocked,
                                 currentTime = updatedTime,
                                 batteryBars = updatedBattery,
-                                statusBanner = if (app.isEssential) "App essenziale (sempre attiva)" else "Premi OK per attivare/disattivare"
+                                statusBanner = if (app.isEssential) {
+                                    "App essenziale (sempre attiva)"
+                                } else if (updatedDetoxActive && !updatedCustodianUnlocked) {
+                                    "🔒 Protetta: richiede Codice Custode 20 car."
+                                } else {
+                                    "Premi OK per attivare/disattivare"
+                                }
                             )
                         }
 
@@ -266,6 +365,9 @@ class NokiaViewModel(
                                 current.copy(
                                     selectedIndex = nextIndex,
                                     remainingQuickTimerMinutes = updatedTimerMinutes,
+                                    remainingEmergencyPauseMinutes = updatedPauseMinutes,
+                                    isCustodianUnlocked = updatedCustodianUnlocked,
+                                    isDetoxActive = updatedDetoxActive,
                                     currentTime = updatedTime,
                                     batteryBars = updatedBattery,
                                     statusBanner = null
@@ -282,38 +384,53 @@ class NokiaViewModel(
                 // Tasto Centrale OK
                 NokiaKey.OK -> {
                     when (current.openedItem?.id) {
+                        // US 4.1, US 4.2 & US 4.3: Sottomenu "Sblocco SOS"
+                        MENU_ID_EMERGENCY -> handleEmergencyMenuOk(
+                            current = current,
+                            updatedTime = updatedTime,
+                            updatedBattery = updatedBattery
+                        )
+
                         // US 3.1 & US 3.2: Sottomenu "Orari Detox"
                         MENU_ID_SCHEDULE -> {
                             if (current.subMenuCursorIndex < quickPresets.size) {
-                                // US 3.1: Avvia una sessione manuale rapida (30m, 1h, 2h)
                                 val chosenPreset = quickPresets[current.subMenuCursorIndex]
                                 repository.startQuickDetoxTimer(chosenPreset.minutes)
                                 current.copy(
                                     isDetoxActive = true,
                                     remainingQuickTimerMinutes = chosenPreset.minutes,
+                                    remainingEmergencyPauseMinutes = 0,
                                     currentTime = updatedTime,
                                     batteryBars = updatedBattery,
                                     statusBanner = "⏱ Timer avviato: ${chosenPreset.minutes} min!"
                                 )
                             } else {
-                                // US 3.2: Attiva / Disattiva una fascia oraria programmata (stile Sveglia)
                                 val scheduleIdx = current.subMenuCursorIndex - quickPresets.size
                                 val targetSchedule = current.schedules.getOrNull(scheduleIdx)
                                 if (targetSchedule != null) {
-                                    val updatedSchedules = repository.toggleSchedule(targetSchedule.id)
-                                    val toggled = updatedSchedules.first { it.id == targetSchedule.id }
-                                    current.copy(
-                                        schedules = updatedSchedules,
-                                        isDetoxActive = repository.isDetoxBlockingActive(),
-                                        remainingQuickTimerMinutes = repository.getRemainingQuickTimerMinutes(),
-                                        currentTime = updatedTime,
-                                        batteryBars = updatedBattery,
-                                        statusBanner = if (toggled.isEnabled) {
-                                            "Sveglia Detox ATTIVA: ${toggled.title}"
-                                        } else {
-                                            "Sveglia Detox DISATTIVATA: ${toggled.title}"
-                                        }
-                                    )
+                                    // US 4.3: Disattivare una fascia oraria attiva durante il blocco richiede il Codice Custode
+                                    if (targetSchedule.isEnabled && updatedDetoxActive && !updatedCustodianUnlocked) {
+                                        current.copy(
+                                            currentTime = updatedTime,
+                                            batteryBars = updatedBattery,
+                                            statusBanner = "🔒 Protetta! Usa Codice 20 car. in Sblocco SOS"
+                                        )
+                                    } else {
+                                        val updatedSchedules = repository.toggleSchedule(targetSchedule.id)
+                                        val toggled = updatedSchedules.first { it.id == targetSchedule.id }
+                                        current.copy(
+                                            schedules = updatedSchedules,
+                                            isDetoxActive = repository.isDetoxBlockingActive(),
+                                            remainingQuickTimerMinutes = repository.getRemainingQuickTimerMinutes(),
+                                            currentTime = updatedTime,
+                                            batteryBars = updatedBattery,
+                                            statusBanner = if (toggled.isEnabled) {
+                                                "Sveglia Detox ATTIVA: ${toggled.title}"
+                                            } else {
+                                                "Sveglia Detox DISATTIVATA: ${toggled.title}"
+                                            }
+                                        )
+                                    }
                                 } else {
                                     current
                                 }
@@ -323,15 +440,24 @@ class NokiaViewModel(
                         MENU_ID_GUARD -> {
                             when (current.subMenuCursorIndex) {
                                 0 -> {
-                                    val newActive = !current.isDetoxActive
-                                    repository.setDetoxBlockingActive(newActive)
-                                    current.copy(
-                                        isDetoxActive = repository.isDetoxBlockingActive(),
-                                        remainingQuickTimerMinutes = repository.getRemainingQuickTimerMinutes(),
-                                        currentTime = updatedTime,
-                                        batteryBars = updatedBattery,
-                                        statusBanner = if (newActive) "Portiere ATTIVO: App bloccate" else "Portiere in PAUSA: Telefono libero"
-                                    )
+                                    // US 4.3: Spegnere il Portiere mentre è attivo richiede lo Sblocco Custode o una Pausa SOS
+                                    if (updatedDetoxActive && !updatedCustodianUnlocked) {
+                                        current.copy(
+                                            currentTime = updatedTime,
+                                            batteryBars = updatedBattery,
+                                            statusBanner = "🔒 Vai in '8. Sblocco SOS' per Pausa o Custode!"
+                                        )
+                                    } else {
+                                        val newActive = !updatedDetoxActive
+                                        repository.setDetoxBlockingActive(newActive)
+                                        current.copy(
+                                            isDetoxActive = repository.isDetoxBlockingActive(),
+                                            remainingQuickTimerMinutes = repository.getRemainingQuickTimerMinutes(),
+                                            currentTime = updatedTime,
+                                            batteryBars = updatedBattery,
+                                            statusBanner = if (newActive) "Portiere ATTIVO: App bloccate" else "Portiere in PAUSA: Telefono libero"
+                                        )
+                                    }
                                 }
                                 1 -> {
                                     repository.openAccessibilityPermissionSettings()
@@ -368,7 +494,22 @@ class NokiaViewModel(
 
                         MENU_ID_WHITELIST -> {
                             val targetApp = current.configurableApps.getOrNull(current.subMenuCursorIndex)
-                            if (targetApp != null && !targetApp.isEssential) {
+                            if (targetApp == null) {
+                                current
+                            } else if (targetApp.isEssential) {
+                                current.copy(
+                                    currentTime = updatedTime,
+                                    batteryBars = updatedBattery,
+                                    statusBanner = "Telefono e SMS sono sempre attivi!"
+                                )
+                            } else if (updatedDetoxActive && !updatedCustodianUnlocked) {
+                                // US 4.3: Protezione anti-sabotaggio della Whitelist
+                                current.copy(
+                                    currentTime = updatedTime,
+                                    batteryBars = updatedBattery,
+                                    statusBanner = "🔒 Protetta! Sblocca col Codice 20 car. in Sblocco SOS"
+                                )
+                            } else {
                                 val updatedApps = repository.toggleAppWhitelist(targetApp.id)
                                 val rebuiltMenu = buildNokiaMenuFromWhitelist(updatedApps)
                                 val toggledApp = updatedApps.first { it.id == targetApp.id }
@@ -382,12 +523,6 @@ class NokiaViewModel(
                                     } else {
                                         "Rimossa dal menu: ${toggledApp.title}"
                                     }
-                                )
-                            } else {
-                                current.copy(
-                                    currentTime = updatedTime,
-                                    batteryBars = updatedBattery,
-                                    statusBanner = "Telefono e SMS sono sempre attivi!"
                                 )
                             }
                         }
@@ -432,8 +567,15 @@ class NokiaViewModel(
                                 current.copy(
                                     openedItem = selected,
                                     subMenuCursorIndex = initialSubCursor,
+                                    activeChallenge = null,
                                     schedules = repository.getSchedules(),
                                     remainingQuickTimerMinutes = updatedTimerMinutes,
+                                    usedEmergencyPausesToday = repository.getUsedEmergencyPausesToday(),
+                                    remainingEmergencyPauseMinutes = updatedPauseMinutes,
+                                    custodianCode20 = repository.getOrCreateCustodianCode(),
+                                    isCustodianUnlocked = updatedCustodianUnlocked,
+                                    remainingCustodianUnlockMinutes = updatedCustodianMinutes,
+                                    isDetoxActive = updatedDetoxActive,
                                     isGuardPermissionEnabled = repository.isGuardServiceEnabled(),
                                     blockedAttemptsCount = repository.getBlockedAttemptsCount(),
                                     lastBlockedApp = repository.getLastBlockedApp(),
@@ -452,9 +594,13 @@ class NokiaViewModel(
                 NokiaKey.SOFT_LEFT -> {
                     current.copy(
                         openedItem = null,
+                        activeChallenge = null,
                         selectedIndex = 0,
                         subMenuCursorIndex = 0,
                         remainingQuickTimerMinutes = updatedTimerMinutes,
+                        remainingEmergencyPauseMinutes = updatedPauseMinutes,
+                        isCustodianUnlocked = updatedCustodianUnlocked,
+                        isDetoxActive = updatedDetoxActive,
                         currentTime = updatedTime,
                         batteryBars = updatedBattery,
                         statusBanner = "Home Nokia"
@@ -463,7 +609,16 @@ class NokiaViewModel(
 
                 // Tasto in Basso a Sinistra (SOFT_RIGHT, C / ↩): torna indietro di un livello
                 NokiaKey.SOFT_RIGHT -> {
-                    if (current.openedItem != null) {
+                    if (current.activeChallenge != null) {
+                        // Se era dentro un Enigma o verifica Codice Custode, torna al sottomenu Sblocco SOS
+                        current.copy(
+                            activeChallenge = null,
+                            subMenuCursorIndex = 0,
+                            currentTime = updatedTime,
+                            batteryBars = updatedBattery,
+                            statusBanner = "Sfida annullata"
+                        )
+                    } else if (current.openedItem != null) {
                         val safeSelectedIndex = current.selectedIndex.coerceAtMost(
                             (current.menuItems.size - 1).coerceAtLeast(0)
                         )
@@ -472,6 +627,9 @@ class NokiaViewModel(
                             selectedIndex = safeSelectedIndex,
                             subMenuCursorIndex = 0,
                             remainingQuickTimerMinutes = updatedTimerMinutes,
+                            remainingEmergencyPauseMinutes = updatedPauseMinutes,
+                            isCustodianUnlocked = updatedCustodianUnlocked,
+                            isDetoxActive = updatedDetoxActive,
                             currentTime = updatedTime,
                             batteryBars = updatedBattery,
                             statusBanner = null
@@ -482,6 +640,204 @@ class NokiaViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * Gestisce la pressione di `OK` dentro il sottomenu `8. Sblocco SOS` (US 4.1, US 4.2, US 4.3).
+     */
+    private fun handleEmergencyMenuOk(
+        current: NokiaUiState,
+        updatedTime: String,
+        updatedBattery: Int
+    ): NokiaUiState {
+        val activeChallenge = current.activeChallenge
+
+        // Caso A: L'utente sta risolvendo l'Enigma Matematico (US 4.2)
+        if (activeChallenge is MathPuzzleChallenge) {
+            val isCorrect = MathPuzzleStrategy.isSelectionCorrect(
+                challenge = activeChallenge,
+                selectedOptionIndex = current.subMenuCursorIndex
+            )
+            return if (isCorrect) {
+                if (activeChallenge.currentStep < activeChallenge.totalSteps) {
+                    val nextChallenge = MathPuzzleStrategy.generateChallenge(
+                        step = activeChallenge.currentStep + 1,
+                        totalSteps = activeChallenge.totalSteps
+                    )
+                    current.copy(
+                        activeChallenge = nextChallenge,
+                        subMenuCursorIndex = 0,
+                        currentTime = updatedTime,
+                        batteryBars = updatedBattery,
+                        statusBanner = "✓ Esatto! Risolvi il calcolo ${nextChallenge.currentStep}/${nextChallenge.totalSteps}"
+                    )
+                } else {
+                    // US 4.1: Enigma superato! Avvia la Pausa di Emergenza di 5 minuti
+                    val started = repository.startEmergencyPause()
+                    current.copy(
+                        activeChallenge = null,
+                        subMenuCursorIndex = 0,
+                        usedEmergencyPausesToday = repository.getUsedEmergencyPausesToday(),
+                        remainingEmergencyPauseMinutes = repository.getRemainingEmergencyPauseMinutes(),
+                        isDetoxActive = repository.isDetoxBlockingActive(),
+                        currentTime = updatedTime,
+                        batteryBars = updatedBattery,
+                        statusBanner = if (started) {
+                            "🔓 Pausa SOS 5 min ATTIVA! (${repository.getUsedEmergencyPausesToday()}/2 oggi)"
+                        } else {
+                            "⛔ Limite 2 pause giornaliere raggiunto!"
+                        }
+                    )
+                }
+            } else {
+                val retryChallenge = MathPuzzleStrategy.generateChallenge(
+                    step = 1,
+                    totalSteps = activeChallenge.totalSteps
+                )
+                current.copy(
+                    activeChallenge = retryChallenge,
+                    subMenuCursorIndex = 0,
+                    currentTime = updatedTime,
+                    batteryBars = updatedBattery,
+                    statusBanner = "✗ Risposta errata! Nuovo calcolo 1/${retryChallenge.totalSteps}"
+                )
+            }
+        }
+
+        // Caso B: L'utente sta verificando il Codice Custode a 20 caratteri (US 4.3)
+        if (activeChallenge is CustodianCodeChallenge) {
+            val isCorrect = CustodianCodeStrategy.isSelectionCorrect(
+                challenge = activeChallenge,
+                selectedOptionIndex = current.subMenuCursorIndex
+            )
+            return if (isCorrect) {
+                val nextBlockIdx = activeChallenge.currentBlockIndex + 1
+                if (nextBlockIdx < activeChallenge.totalBlocks) {
+                    val nextChallenge = CustodianCodeStrategy.createBlockChallenge(
+                        fullCode20 = activeChallenge.fullCode20,
+                        blockIndex = nextBlockIdx
+                    )
+                    current.copy(
+                        activeChallenge = nextChallenge,
+                        subMenuCursorIndex = 0,
+                        currentTime = updatedTime,
+                        batteryBars = updatedBattery,
+                        statusBanner = "✓ Blocco ${nextBlockIdx}/5 OK (${nextBlockIdx * 4}/20 car.)"
+                    )
+                } else {
+                    // Tutti i 20 caratteri verificati! Sblocca i permessi Custode per 5 minuti
+                    repository.grantCustodianUnlock(durationMinutes = 5)
+                    current.copy(
+                        activeChallenge = null,
+                        subMenuCursorIndex = 0,
+                        isCustodianUnlocked = true,
+                        remainingCustodianUnlockMinutes = repository.getRemainingCustodianUnlockMinutes(),
+                        currentTime = updatedTime,
+                        batteryBars = updatedBattery,
+                        statusBanner = "🔑 Codice 20/20 OK! Modifiche Custode sbloccate (5m)"
+                    )
+                }
+            } else {
+                val resetChallenge = CustodianCodeStrategy.createBlockChallenge(
+                    fullCode20 = activeChallenge.fullCode20,
+                    blockIndex = 0
+                )
+                current.copy(
+                    activeChallenge = resetChallenge,
+                    subMenuCursorIndex = 0,
+                    currentTime = updatedTime,
+                    batteryBars = updatedBattery,
+                    statusBanner = "✗ Blocco errato! Riparti dal Blocco 1/5 (0/20)"
+                )
+            }
+        }
+
+        // Caso C: Menu principale di "8. Sblocco SOS" (4 opzioni)
+        return when (current.subMenuCursorIndex) {
+            0 -> {
+                // 1. Pausa SOS 5m (max 2/giorno) -> Richiede Enigma Matematico (US 4.1 + US 4.2)
+                val usedToday = repository.getUsedEmergencyPausesToday()
+                val maxDaily = repository.getMaxDailyEmergencyPauses()
+                val pauseLeft = repository.getRemainingEmergencyPauseMinutes()
+                if (pauseLeft > 0) {
+                    current.copy(
+                        currentTime = updatedTime,
+                        batteryBars = updatedBattery,
+                        statusBanner = "Pausa SOS già attiva ($pauseLeft min rimasti)"
+                    )
+                } else if (usedToday >= maxDaily) {
+                    current.copy(
+                        currentTime = updatedTime,
+                        batteryBars = updatedBattery,
+                        statusBanner = "⛔ Hai già usato $usedToday/$maxDaily Pause SOS oggi!"
+                    )
+                } else {
+                    val mathChallenge = MathPuzzleStrategy.generateChallenge(step = 1, totalSteps = 2)
+                    current.copy(
+                        activeChallenge = mathChallenge,
+                        subMenuCursorIndex = 0,
+                        currentTime = updatedTime,
+                        batteryBars = updatedBattery,
+                        statusBanner = "US 4.2: Risolvi 2 calcoli con ▲/▼ e OK"
+                    )
+                }
+            }
+
+            1 -> {
+                // 2. Sblocco Custode (20 Caratteri) -> Avvia verifica 5 blocchi da 4 caratteri (US 4.3)
+                val code20 = repository.getOrCreateCustodianCode()
+                val custodianChallenge = CustodianCodeStrategy.createBlockChallenge(
+                    fullCode20 = code20,
+                    blockIndex = 0
+                )
+                current.copy(
+                    custodianCode20 = code20,
+                    activeChallenge = custodianChallenge,
+                    subMenuCursorIndex = 0,
+                    currentTime = updatedTime,
+                    batteryBars = updatedBattery,
+                    statusBanner = "US 4.3: Seleziona il Blocco 1/5 del Codice 20 car."
+                )
+            }
+
+            2 -> {
+                // 3. Rigenera / Mostra Codice Custode a 20 caratteri
+                if (!repository.isDetoxBlockingActive() || repository.isCustodianUnlocked()) {
+                    val newCode = repository.regenerateCustodianCode()
+                    current.copy(
+                        custodianCode20 = newCode,
+                        currentTime = updatedTime,
+                        batteryBars = updatedBattery,
+                        statusBanner = "Nuovo Codice 20 car.: $newCode"
+                    )
+                } else {
+                    current.copy(
+                        currentTime = updatedTime,
+                        batteryBars = updatedBattery,
+                        statusBanner = "Codice Custode: ${current.custodianCode20}"
+                    )
+                }
+            }
+
+            else -> {
+                // 4. Termina subito Pausa SOS / Riattiva protezione Nokia
+                repository.setDetoxBlockingActive(true)
+                current.copy(
+                    isDetoxActive = repository.isDetoxBlockingActive(),
+                    remainingEmergencyPauseMinutes = repository.getRemainingEmergencyPauseMinutes(),
+                    currentTime = updatedTime,
+                    batteryBars = updatedBattery,
+                    statusBanner = "🔒 Protezione Modalità NOKIA attiva!"
+                )
+            }
+        }
+    }
+
+    private fun emergencyRowSubtitle(cursorIndex: Int, code20: String): String = when (cursorIndex) {
+        0 -> "US 4.1 & 4.2: Risolvi 2 calcoli per 5m di pausa (max 2/gg)"
+        1 -> "US 4.3: Verifica i 20 caratteri per modificare Whitelist/Orari"
+        2 -> "Codice 20 car.: $code20"
+        else -> "Riattiva subito il blocco del Portiere Nokia"
     }
 
     private fun scheduleRowSubtitle(
@@ -576,7 +932,7 @@ fun buildNokiaMenuFromWhitelist(apps: List<AllowedApp>): List<NokiaMenuItem> {
             indexNumber = items.size + 1,
             title = "Sblocco SOS",
             packageName = null,
-            description = "Pausa emergenza (Enigma / Codice)"
+            description = "Pausa 5m (Enigma) e Codice Custode 20 car."
         )
     )
     items.add(
