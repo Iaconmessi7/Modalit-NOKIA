@@ -10,6 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.retrophonedetox.domain.model.AllowedApp
 import com.retrophonedetox.domain.model.NokiaKey
 import com.retrophonedetox.ui.components.NokiaKeypad
 import com.retrophonedetox.ui.components.NokiaLcdDisplay
@@ -17,13 +18,10 @@ import com.retrophonedetox.ui.theme.Nokia5200ShellColors
 import com.retrophonedetox.ui.theme.NokiaTheme
 import com.retrophonedetox.ui.viewmodel.NokiaUiState
 import com.retrophonedetox.ui.viewmodel.NokiaViewModel
+import com.retrophonedetox.ui.viewmodel.buildNokiaMenuFromWhitelist
 
 /**
- * Schermata principale della Modalità NOKIA (US 1.1 & US 1.2).
- *
- * Divide verticalmente lo schermo dello smartphone in:
- * - 80% Superiore (`weight(0.8f)`): Bordino bianco con scritta NOKIA nera a destra + Display LCD a tutta larghezza.
- * - 20% Inferiore (`weight(0.2f)`): Tastierino avorio fedele agli anni 2000 con i soli trattini colorati e bottone OK centrale.
+ * Schermata principale della Modalità NOKIA (Sprint 1: US 1.1, 1.2, 1.3, 1.4).
  */
 @Composable
 fun NokiaHomeScreen(
@@ -52,19 +50,20 @@ fun NokiaHomeContent(
         // 80% SUPERIORE: Display LCD a tutta larghezza + Bordino superiore con logo NOKIA
         NokiaLcdDisplay(
             menuItems = uiState.menuItems,
+            configurableApps = uiState.configurableApps,
             selectedIndex = uiState.selectedIndex,
             currentTime = uiState.currentTime,
             batteryBars = uiState.batteryBars,
             signalBars = uiState.signalBars,
             isDetoxActive = uiState.isDetoxActive,
             openedItem = uiState.openedItem,
-            themeCursorIndex = uiState.themeCursorIndex,
+            subMenuCursorIndex = uiState.subMenuCursorIndex,
             statusBanner = uiState.statusBanner,
             palette = uiState.palette,
             modifier = Modifier.weight(0.8f)
         )
 
-        // 20% INFERIORE: Tastierino Fisico anni 2000 con vibrazione
+        // 20% INFERIORE: Tastierino Fisico Ergonomico a 5 tasti con vibrazione
         NokiaKeypad(
             onKeyPress = onKeyPress,
             modifier = Modifier.weight(0.2f)
@@ -75,9 +74,17 @@ fun NokiaHomeContent(
 @Preview(showBackground = true, widthDp = 390, heightDp = 844)
 @Composable
 fun NokiaHomeScreenPreview() {
+    val sampleApps = listOf(
+        AllowedApp("phone", "Telefono", "com.android.dialer", "Apri Telefono", true, true),
+        AllowedApp("messages", "Messaggi SMS", "com.google.android.apps.messaging", "Apri SMS", true, true),
+        AllowedApp("whatsapp", "WhatsApp", "com.whatsapp", "Apri WhatsApp", false, true)
+    )
     NokiaTheme {
         NokiaHomeContent(
-            uiState = NokiaUiState(),
+            uiState = NokiaUiState(
+                configurableApps = sampleApps,
+                menuItems = buildNokiaMenuFromWhitelist(sampleApps)
+            ),
             onKeyPress = {}
         )
     }

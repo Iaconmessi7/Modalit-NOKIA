@@ -35,36 +35,50 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.retrophonedetox.domain.model.AllowedApp
+import com.retrophonedetox.domain.model.ConnectionOption
 import com.retrophonedetox.domain.model.NokiaMenuItem
 import com.retrophonedetox.ui.theme.Nokia5200ShellColors
 import com.retrophonedetox.ui.theme.NokiaLcdPalette
+import com.retrophonedetox.ui.viewmodel.NokiaViewModel
 
 /**
- * US 1.1 & US 1.2 - Sezione Superiore (80%) con:
- * - Bordino superiore bianco/avorio con i due trattini altoparlante al centro (spazio fotocamera)
- *   e il logo "NOKIA" scritto in nero a destra.
- * - Schermo LCD centrale a tutta larghezza (senza bande rosse laterali) racchiuso nella cornice nera.
- * - Touch completamente disabilitato sul display LCD: si naviga solo con il tastierino fisico.
+ * Sezione Superiore (80%) della Modalità NOKIA (Sprint 1: US 1.1, 1.2, 1.3, 1.4):
+ * - Bordino bianco/avorio con i due trattini al centro (spazio fotocamera) e scritta NOKIA nera a destra.
+ * - Schermo LCD centrale a tutta larghezza con touch disabilitato.
+ * - Mostra il menu principale delle app reali + i sottomenu "Connessioni" (US 1.4),
+ *   "App Consentite" (US 1.3) e "Tema Display".
  */
 @Composable
 fun NokiaLcdDisplay(
     menuItems: List<NokiaMenuItem>,
+    configurableApps: List<AllowedApp>,
     selectedIndex: Int,
     currentTime: String,
     batteryBars: Int,
     signalBars: Int,
     isDetoxActive: Boolean,
     openedItem: NokiaMenuItem?,
-    themeCursorIndex: Int,
+    subMenuCursorIndex: Int,
     statusBanner: String?,
     palette: NokiaLcdPalette,
     modifier: Modifier = Modifier
 ) {
-    val listState = rememberLazyListState()
+    val mainListState = rememberLazyListState()
+    val whitelistListState = rememberLazyListState()
 
     LaunchedEffect(selectedIndex, openedItem) {
         if (openedItem == null && menuItems.isNotEmpty() && selectedIndex in menuItems.indices) {
-            listState.animateScrollToItem(selectedIndex)
+            mainListState.animateScrollToItem(selectedIndex)
+        }
+    }
+
+    LaunchedEffect(subMenuCursorIndex, openedItem) {
+        if (openedItem?.id == NokiaViewModel.MENU_ID_WHITELIST &&
+            configurableApps.isNotEmpty() &&
+            subMenuCursorIndex in configurableApps.indices
+        ) {
+            whitelistListState.animateScrollToItem(subMenuCursorIndex)
         }
     }
 
@@ -73,7 +87,7 @@ fun NokiaLcdDisplay(
             .fillMaxWidth()
             .background(Nokia5200ShellColors.ShellIvory)
     ) {
-        // 1. Bordino superiore bianco/avorio: 2 trattini al centro (ai lati della fotocamera) + scritta NOKIA nera a destra
+        // 1. Bordino superiore bianco/avorio: 2 trattini al centro + scritta NOKIA nera a destra
         NokiaTopIvoryHeaderBar()
 
         // 2. Schermo centrale intero a tutta larghezza con cornice nera
@@ -103,7 +117,6 @@ fun NokiaLcdDisplay(
                         }
                     }
             ) {
-                // Trama pixel cristalli liquidi adattata al tema corrente
                 LcdPixelMatrixOverlay(shadowColor = palette.lcdShadow)
 
                 Row(
@@ -131,13 +144,9 @@ fun NokiaLcdDisplay(
                         verticalArrangement = Arrangement.SpaceBetween
                     ) {
                         val currentMenuNumber = if (openedItem != null) {
-                            if (openedItem.id == "theme") {
-                                "7-${themeCursorIndex + 1}"
-                            } else {
-                                "1-${openedItem.indexNumber}"
-                            }
+                            "${openedItem.indexNumber}-${subMenuCursorIndex + 1}"
                         } else {
-                            "1-${(selectedIndex + 1).coerceAtMost(menuItems.size)}"
+                            "1-${(selectedIndex + 1).coerceAtMost(menuItems.size.coerceAtLeast(1))}"
                         }
 
                         NokiaTopHeader(
@@ -154,40 +163,58 @@ fun NokiaLcdDisplay(
                                 .weight(1f)
                                 .fillMaxWidth()
                         ) {
-                            when {
-                                // Sottomenu 7. Tema Display: permette di scegliere i 4 temi direttamente sullo schermo LCD!
-                                openedItem?.id == "theme" -> {
+                            when (openedItem?.id) {
+                                // US 1.4: Sottomenu "Connessioni" (Wi-Fi, Rete/Dati, Bluetooth, Hotspot)
+                                NokiaViewModel.MENU_ID_CONNECTIONS -> {
+                                    NokiaConnectionsSubMenu(
+                                        selectedOptionIndex = subMenuCursorIndex,
+                                        palette = palette
+                                    )
+                                }
+
+                                // US 1.3: Sottomenu "App Consentite" (Whitelist configurabile)
+                                NokiaViewModel.MENU_ID_WHITELIST -> {
+                                    NokiaWhitelistSubMenu(
+                                        apps = configurableApps,
+                                        selectedAppIndex = subMenuCursorIndex,
+                                        listState = whitelistListState,
+                                        palette = palette
+                                    )
+                                }
+
+                                // Sottomenu "Tema Display" (4 temi Anti-Luce Blu)
+                                NokiaViewModel.MENU_ID_THEME -> {
                                     NokiaThemeSelectorSubMenu(
-                                        selectedThemeIndex = themeCursorIndex,
+                                        selectedThemeIndex = subMenuCursorIndex,
                                         activePalette = palette
                                     )
                                 }
 
-                                // Altre voci aperte (Telefono, Messaggi, WhatsApp, ecc.)
-                                openedItem != null -> {
-                                    NokiaOpenedItemView(
-                                        item = openedItem,
-                                        statusBanner = statusBanner,
-                                        inkColor = palette.lcdInk
-                                    )
-                                }
-
-                                // Menu principale Nokia (voci 1..7)
-                                else -> {
+                                // Altri sottomenu (Orari Detox, Sblocco SOS)
+                                null -> {
                                     LazyColumn(
-                                        state = listState,
+                                        state = mainListState,
                                         userScrollEnabled = false,
                                         verticalArrangement = Arrangement.spacedBy(5.dp),
                                         modifier = Modifier.fillMaxSize()
                                     ) {
                                         itemsIndexed(menuItems) { index, item ->
+                                            val suffix = if (item.packageName != null) " ↗" else ""
                                             NokiaMenuRow(
-                                                text = "${item.indexNumber}. ${item.title}",
+                                                text = "${item.indexNumber}. ${item.title}$suffix",
                                                 isSelected = (index == selectedIndex),
                                                 palette = palette
                                             )
                                         }
                                     }
+                                }
+
+                                else -> {
+                                    NokiaOpenedItemView(
+                                        item = openedItem,
+                                        statusBanner = statusBanner,
+                                        inkColor = palette.lcdInk
+                                    )
                                 }
                             }
                         }
@@ -197,8 +224,8 @@ fun NokiaLcdDisplay(
                         val selectedItem = menuItems.getOrNull(selectedIndex)
                         NokiaBottomSoftKeyBar(
                             subtitle = statusBanner ?: selectedItem?.description.orEmpty(),
-                            leftSoftKey = "Home",
-                            rightSoftKey = "Indietro",
+                            leftSoftKey = "Home / Indietro",
+                            rightSoftKey = "▲ Su / Giù ▼",
                             inkColor = palette.lcdInk
                         )
                     }
@@ -218,11 +245,6 @@ fun NokiaLcdDisplay(
     }
 }
 
-/**
- * Bordino superiore bianco/avorio:
- * - Al centro: i due trattini altoparlante (con lo spazio in mezzo per la fotocamera reale del telefono).
- * - A destra: la scritta "NOKIA" in nero.
- */
 @Composable
 private fun NokiaTopIvoryHeaderBar() {
     Box(
@@ -231,7 +253,6 @@ private fun NokiaTopIvoryHeaderBar() {
             .background(Nokia5200ShellColors.ShellIvory)
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        // I due trattini centrali (ai lati della fotocamera frontale)
         Row(
             modifier = Modifier.align(Alignment.Center),
             horizontalArrangement = Arrangement.spacedBy(34.dp),
@@ -253,7 +274,6 @@ private fun NokiaTopIvoryHeaderBar() {
             )
         }
 
-        // Scritta NOKIA nera a destra nel bordino bianco
         Text(
             text = "NOKIA",
             fontFamily = FontFamily.Monospace,
@@ -356,7 +376,7 @@ private fun NokiaMenuRow(
                 width = if (isSelected) 2.dp else 1.dp,
                 color = palette.lcdInk
             )
-            .padding(horizontal = 8.dp, vertical = 9.dp),
+            .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
@@ -377,9 +397,76 @@ private fun NokiaMenuRow(
 }
 
 /**
- * Sottomenu interno per la voce "7. Tema Display":
- * mostra i 4 temi Anti-Luce Blu direttamente sullo schermo LCD.
+ * US 1.4 - Sottomenu "Connessioni":
+ * permette di aprire i controlli rapidi di Wi-Fi, Rete/Dati, Bluetooth e Hotspot.
  */
+@Composable
+private fun NokiaConnectionsSubMenu(
+    selectedOptionIndex: Int,
+    palette: NokiaLcdPalette
+) {
+    val options = ConnectionOption.entries
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Text(
+            text = "PANNELLO CONNESSIONI (OK=Apri):",
+            style = MaterialTheme.typography.labelMedium,
+            color = palette.lcdInk,
+            fontWeight = FontWeight.Black
+        )
+        options.forEachIndexed { idx, opt ->
+            NokiaMenuRow(
+                text = "${opt.indexNumber}. ${opt.title} ⚙",
+                isSelected = (idx == selectedOptionIndex),
+                palette = palette
+            )
+        }
+    }
+}
+
+/**
+ * US 1.3 - Sottomenu "App Consentite" (Whitelist):
+ * mostra tutte le app disponibili con spunta [✓] o [ ] e permette di aggiungerle/rimuoverle dal Nokia.
+ */
+@Composable
+private fun NokiaWhitelistSubMenu(
+    apps: List<AllowedApp>,
+    selectedAppIndex: Int,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    palette: NokiaLcdPalette
+) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = "APP NEL MENU NOKIA (OK=Cambia):",
+            style = MaterialTheme.typography.labelMedium,
+            color = palette.lcdInk,
+            fontWeight = FontWeight.Black
+        )
+        LazyColumn(
+            state = listState,
+            userScrollEnabled = false,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            itemsIndexed(apps) { idx, app ->
+                val mark = if (app.isEnabled) "[✓]" else "[ ]"
+                val lockTag = if (app.isEssential) " *" else ""
+                NokiaMenuRow(
+                    text = "$mark ${app.title}$lockTag",
+                    isSelected = (idx == selectedAppIndex),
+                    palette = palette
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun NokiaThemeSelectorSubMenu(
     selectedThemeIndex: Int,
@@ -437,7 +524,7 @@ private fun NokiaOpenedItemView(
         )
         Spacer(modifier = Modifier.height(14.dp))
         Text(
-            text = "Premi Indietro (trattino blu dx)\no Tasto Rosso per il menu",
+            text = "Premi C / ↩ (basso a sx)\no ≡ (alto a sx) per la Home",
             style = MaterialTheme.typography.labelMedium,
             color = inkColor,
             textAlign = TextAlign.Center
@@ -445,11 +532,6 @@ private fun NokiaOpenedItemView(
     }
 }
 
-/**
- * Barra inferiore autentica anni 2000:
- * - In basso a sinistra (sopra il tasto funzione blu sinistro): "Seleziona"
- * - In basso a destra (sopra il tasto funzione blu destro): "Indietro"
- */
 @Composable
 private fun NokiaBottomSoftKeyBar(
     subtitle: String,
@@ -484,13 +566,13 @@ private fun NokiaBottomSoftKeyBar(
         ) {
             Text(
                 text = leftSoftKey,
-                style = MaterialTheme.typography.labelMedium.copy(fontSize = 14.sp),
+                style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
                 color = inkColor,
                 fontWeight = FontWeight.Black
             )
             Text(
                 text = rightSoftKey,
-                style = MaterialTheme.typography.labelMedium.copy(fontSize = 14.sp),
+                style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
                 color = inkColor,
                 fontWeight = FontWeight.Black
             )
