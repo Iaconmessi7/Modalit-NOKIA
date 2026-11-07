@@ -19,7 +19,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Stato immutabile della schermata Nokia (Pattern MVVM + Unidirectional Data Flow).
+ * Stato immutabile della schermata Nokia (Sprint 1 + Sprint 2).
  */
 data class NokiaUiState(
     val configurableApps: List<AllowedApp> = emptyList(),
@@ -28,6 +28,9 @@ data class NokiaUiState(
     val openedItem: NokiaMenuItem? = null,
     val subMenuCursorIndex: Int = 0,
     val isDetoxActive: Boolean = true,
+    val isGuardPermissionEnabled: Boolean = false,
+    val blockedAttemptsCount: Int = 0,
+    val lastBlockedApp: String? = null,
     val batteryBars: Int = 4,
     val signalBars: Int = 4,
     val currentTime: String = formatCurrentTime(),
@@ -36,11 +39,11 @@ data class NokiaUiState(
 )
 
 /**
- * ViewModel principale della Modalità NOKIA (Sprint 1 completo: US 1.1, 1.2, 1.3, 1.4):
- * - Legge e salva la Whitelist delle app tramite `DetoxRepository` (US 1.3)
- * - Lancia le vere app Android installate tramite `Intent` quando si preme OK (US 1.3)
- * - Gestisce il sottomenu "Connessioni" (Wi-Fi, Rete/Dati, Bluetooth, Hotspot) (US 1.4)
- * - Gestisce il sottomenu "App Consentite" per aggiungere/rimuovere app dal menu del Nokia (US 1.3)
+ * ViewModel principale della Modalità NOKIA (Sprint 1 + Sprint 2: Il "Portiere"):
+ * - Gestisce il menu dinamico delle app in Whitelist e il loro avvio tramite Intent (US 1.3)
+ * - Gestisce il pannello Connessioni con finestra temporanea autorizzata nel Portiere (US 1.4 + US 2.2)
+ * - Gestisce lo stato del "Portiere" `DetoxGuardService` (US 2.1 & US 2.2): attivazione blocco,
+ *   verifica permesso Accessibilità e contatore delle app non autorizzate bloccate.
  */
 class NokiaViewModel(
     application: Application
@@ -53,14 +56,34 @@ class NokiaViewModel(
 
     private fun createInitialState(): NokiaUiState {
         val apps = repository.getConfigurableApps()
-        val savedPalette = repository.getSavedPalette()
-        val battery = repository.getBatteryBars()
         return NokiaUiState(
             configurableApps = apps,
             menuItems = buildNokiaMenuFromWhitelist(apps),
-            batteryBars = battery,
-            palette = savedPalette
+            isDetoxActive = repository.isDetoxBlockingActive(),
+            isGuardPermissionEnabled = repository.isGuardServiceEnabled(),
+            blockedAttemptsCount = repository.getBlockedAttemptsCount(),
+            lastBlockedApp = repository.getLastBlockedApp(),
+            batteryBars = repository.getBatteryBars(),
+            palette = repository.getSavedPalette()
         )
+    }
+
+    /**
+     * Aggiorna lo stato quando l'utente torna sulla schermata del Nokia (es. dopo aver attivato
+     * il permesso di Accessibilità o dopo che il Portiere ha bloccato un'app non autorizzata).
+     */
+    fun refreshSystemStatus(blockedBanner: String? = null) {
+        _uiState.update { current ->
+            current.copy(
+                isDetoxActive = repository.isDetoxBlockingActive(),
+                isGuardPermissionEnabled = repository.isGuardServiceEnabled(),
+                blockedAttemptsCount = repository.getBlockedAttemptsCount(),
+                lastBlockedApp = repository.getLastBlockedApp(),
+                batteryBars = repository.getBatteryBars(),
+                currentTime = formatCurrentTime(),
+                statusBanner = blockedBanner ?: current.statusBanner
+            )
+        }
     }
 
     fun onKeyPress(key: NokiaKey) {
@@ -71,9 +94,19 @@ class NokiaViewModel(
             val connectionOptions = ConnectionOption.entries
 
             when (key) {
-                // Tasto in Alto a Destra (▲): scorre in su nel menu principale o nel sottomenu aperto
+                // Tasto in Alto a Destra (▲): scorre in su
                 NokiaKey.UP -> {
                     when (current.openedItem?.id) {
+                        MENU_ID_GUARD -> {
+                            val prev = if (current.subMenuCursorIndex - 1 < 0) 2 else current.subMenuCursorIndex - 1
+                            current.copy(
+                                subMenuCursorIndex = prev,
+                                currentTime = updatedTime,
+                                batteryBars = updatedBattery,
+                                statusBanner = guardOptionSubtitle(prev)
+                            )
+                        }
+
                         MENU_ID_CONNECTIONS -> {
                             val prev = if (current.subMenuCursorIndex - 1 < 0) {
                                 connectionOptions.lastIndex
@@ -139,9 +172,19 @@ class NokiaViewModel(
                     }
                 }
 
-                // Tasto in Basso a Destra (▼): scorre in giù nel menu principale o nel sottomenu aperto
+                // Tasto in Basso a Destra (▼): scorre in giù
                 NokiaKey.DOWN -> {
                     when (current.openedItem?.id) {
+                        MENU_ID_GUARD -> {
+                            val next = (current.subMenuCursorIndex + 1) % 3
+                            current.copy(
+                                subMenuCursorIndex = next,
+                                currentTime = updatedTime,
+                                batteryBars = updatedBattery,
+                                statusBanner = guardOptionSubtitle(next)
+                            )
+                        }
+
                         MENU_ID_CONNECTIONS -> {
                             val next = (current.subMenuCursorIndex + 1) % connectionOptions.size
                             current.copy(
@@ -191,10 +234,44 @@ class NokiaViewModel(
                     }
                 }
 
-                // Tasto Centrale OK: esegue l'azione nel menu o sottomenu
+                // Tasto Centrale OK
                 NokiaKey.OK -> {
                     when (current.openedItem?.id) {
-                        // US 1.4: Dentro "Connessioni", premendo OK apriamo il pannello rapido scelto
+                        // US 2.1 & US 2.2: Sottomenu "Portiere Detox"
+                        MENU_ID_GUARD -> {
+                            when (current.subMenuCursorIndex) {
+                                0 -> {
+                                    // Attiva / Disattiva il blocco del Portiere
+                                    val newActive = !current.isDetoxActive
+                                    repository.setDetoxBlockingActive(newActive)
+                                    current.copy(
+                                        isDetoxActive = newActive,
+                                        currentTime = updatedTime,
+                                        batteryBars = updatedBattery,
+                                        statusBanner = if (newActive) "Portiere ATTIVO: App bloccate" else "Portiere in PAUSA: Telefono libero"
+                                    )
+                                }
+                                1 -> {
+                                    // Apre la schermata Accessibilità di Android per abilitare il Portiere
+                                    repository.openAccessibilityPermissionSettings()
+                                    current.copy(
+                                        currentTime = updatedTime,
+                                        batteryBars = updatedBattery,
+                                        statusBanner = "Attiva 'Portiere Modalità NOKIA'"
+                                    )
+                                }
+                                else -> {
+                                    // Mostra dettagli dell'ultimo blocco effettuato dal Portiere
+                                    val last = current.lastBlockedApp ?: "Nessuna"
+                                    current.copy(
+                                        currentTime = updatedTime,
+                                        batteryBars = updatedBattery,
+                                        statusBanner = "Ultimo blocco: $last (${current.blockedAttemptsCount} tot)"
+                                    )
+                                }
+                            }
+                        }
+
                         MENU_ID_CONNECTIONS -> {
                             val chosenOption = connectionOptions[current.subMenuCursorIndex]
                             val opened = repository.openConnectionControl(chosenOption)
@@ -209,7 +286,6 @@ class NokiaViewModel(
                             )
                         }
 
-                        // US 1.3: Dentro "App Consentite", premendo OK attiviamo/disattiviamo l'app nella Whitelist
                         MENU_ID_WHITELIST -> {
                             val targetApp = current.configurableApps.getOrNull(current.subMenuCursorIndex)
                             if (targetApp != null && !targetApp.isEssential) {
@@ -236,7 +312,6 @@ class NokiaViewModel(
                             }
                         }
 
-                        // Dentro "Tema Display", premendo OK attiviamo e salviamo il tema scelto
                         MENU_ID_THEME -> {
                             val chosenPalette = themes[current.subMenuCursorIndex]
                             repository.savePalette(chosenPalette)
@@ -248,13 +323,11 @@ class NokiaViewModel(
                             )
                         }
 
-                        // Siamo nel Menu Principale del Nokia
                         null -> {
                             val selected = current.menuItems.getOrNull(current.selectedIndex)
                             if (selected == null) {
                                 current
                             } else if (selected.packageName != null) {
-                                // US 1.3: È un'app vera! La lanciamo subito tramite Intent di sistema!
                                 val result = repository.launchRealApp(
                                     appId = selected.id,
                                     packageName = selected.packageName,
@@ -271,7 +344,6 @@ class NokiaViewModel(
                                     statusBanner = banner
                                 )
                             } else {
-                                // È un sottomenu interno del Nokia (Connessioni, App Consentite, Tema, Orari, SOS)
                                 val initialSubCursor = if (selected.id == MENU_ID_THEME) {
                                     current.palette.ordinal
                                 } else {
@@ -280,6 +352,9 @@ class NokiaViewModel(
                                 current.copy(
                                     openedItem = selected,
                                     subMenuCursorIndex = initialSubCursor,
+                                    isGuardPermissionEnabled = repository.isGuardServiceEnabled(),
+                                    blockedAttemptsCount = repository.getBlockedAttemptsCount(),
+                                    lastBlockedApp = repository.getLastBlockedApp(),
                                     currentTime = updatedTime,
                                     batteryBars = updatedBattery,
                                     statusBanner = selected.description
@@ -306,7 +381,6 @@ class NokiaViewModel(
                 // Tasto in Basso a Sinistra (SOFT_RIGHT, C / ↩): torna indietro di un livello
                 NokiaKey.SOFT_RIGHT -> {
                     if (current.openedItem != null) {
-                        // Riallinea il cursore principale se la lista è cambiata
                         val safeSelectedIndex = current.selectedIndex.coerceAtMost(
                             (current.menuItems.size - 1).coerceAtLeast(0)
                         )
@@ -326,9 +400,16 @@ class NokiaViewModel(
         }
     }
 
+    private fun guardOptionSubtitle(index: Int): String = when (index) {
+        0 -> "Premi OK per attivare/disattivare il blocco"
+        1 -> "Premi OK per aprire Permessi Accessibilità"
+        else -> " Protezione Notifiche e Impostazioni (US 2.2)"
+    }
+
     companion object {
         const val MENU_ID_CONNECTIONS = "connections"
         const val MENU_ID_WHITELIST = "whitelist"
+        const val MENU_ID_GUARD = "guard"
         const val MENU_ID_SCHEDULE = "schedule"
         const val MENU_ID_EMERGENCY = "emergency"
         const val MENU_ID_THEME = "theme"
@@ -340,11 +421,6 @@ private fun formatCurrentTime(): String {
     return formatter.format(Date())
 }
 
-/**
- * Costruisce dinamicamente il menu principale del Nokia combinando:
- * 1. Le vere app abilitate nella Whitelist (US 1.3)
- * 2. Le voci di sistema della Modalità NOKIA (Connessioni US 1.4, App Consentite US 1.3, Orari, SOS, Tema Display)
- */
 fun buildNokiaMenuFromWhitelist(apps: List<AllowedApp>): List<NokiaMenuItem> {
     val enabledRealApps = apps.filter { it.isEnabled }
     val items = mutableListOf<NokiaMenuItem>()
@@ -361,7 +437,6 @@ fun buildNokiaMenuFromWhitelist(apps: List<AllowedApp>): List<NokiaMenuItem> {
         )
     }
 
-    // Voci interne di sistema del Nokia
     items.add(
         NokiaMenuItem(
             id = NokiaViewModel.MENU_ID_CONNECTIONS,
@@ -378,6 +453,15 @@ fun buildNokiaMenuFromWhitelist(apps: List<AllowedApp>): List<NokiaMenuItem> {
             title = "App Consentite",
             packageName = null,
             description = "Scegli quali app mostrare nel Nokia"
+        )
+    )
+    items.add(
+        NokiaMenuItem(
+            id = NokiaViewModel.MENU_ID_GUARD,
+            indexNumber = items.size + 1,
+            title = "Portiere Detox",
+            packageName = null,
+            description = "Blocco App, Impostazioni e Notifiche"
         )
     )
     items.add(

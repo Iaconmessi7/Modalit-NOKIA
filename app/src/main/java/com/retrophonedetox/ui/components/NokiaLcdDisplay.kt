@@ -43,11 +43,8 @@ import com.retrophonedetox.ui.theme.NokiaLcdPalette
 import com.retrophonedetox.ui.viewmodel.NokiaViewModel
 
 /**
- * Sezione Superiore (80%) della Modalità NOKIA (Sprint 1: US 1.1, 1.2, 1.3, 1.4):
- * - Bordino bianco/avorio con i due trattini al centro (spazio fotocamera) e scritta NOKIA nera a destra.
- * - Schermo LCD centrale a tutta larghezza con touch disabilitato.
- * - Mostra il menu principale delle app reali + i sottomenu "Connessioni" (US 1.4),
- *   "App Consentite" (US 1.3) e "Tema Display".
+ * Sezione Superiore (80%) della Modalità NOKIA (Sprint 1 + Sprint 2):
+ * Include anche la schermata del "Portiere Detox" (US 2.1 & US 2.2).
  */
 @Composable
 fun NokiaLcdDisplay(
@@ -58,6 +55,9 @@ fun NokiaLcdDisplay(
     batteryBars: Int,
     signalBars: Int,
     isDetoxActive: Boolean,
+    isGuardPermissionEnabled: Boolean,
+    blockedAttemptsCount: Int,
+    lastBlockedApp: String?,
     openedItem: NokiaMenuItem?,
     subMenuCursorIndex: Int,
     statusBanner: String?,
@@ -87,10 +87,8 @@ fun NokiaLcdDisplay(
             .fillMaxWidth()
             .background(Nokia5200ShellColors.ShellIvory)
     ) {
-        // 1. Bordino superiore bianco/avorio: 2 trattini al centro + scritta NOKIA nera a destra
         NokiaTopIvoryHeaderBar()
 
-        // 2. Schermo centrale intero a tutta larghezza con cornice nera
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -100,14 +98,12 @@ fun NokiaLcdDisplay(
                 .background(Nokia5200ShellColors.ScreenBezelBlack)
                 .padding(horizontal = 10.dp, vertical = 10.dp)
         ) {
-            // Vetro LCD Anti-Luce Blu a tutta larghezza
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(RoundedCornerShape(6.dp))
                     .background(palette.lcdBackground)
                     .border(2.dp, palette.lcdInk, RoundedCornerShape(6.dp))
-                    // US 1.2: Blocca ogni tocco o scorrimento col dito sul display LCD
                     .pointerInput(Unit) {
                         awaitPointerEventScope {
                             while (true) {
@@ -125,7 +121,6 @@ fun NokiaLcdDisplay(
                         .padding(horizontal = 8.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Barra verticale sinistra: 4 Tacche del Segnale
                     NokiaVerticalBarMeter(
                         activeBars = signalBars,
                         maxBars = 4,
@@ -135,7 +130,6 @@ fun NokiaLcdDisplay(
                         modifier = Modifier.fillMaxHeight()
                     )
 
-                    // Contenuto centrale del Display LCD
                     Column(
                         modifier = Modifier
                             .weight(1f)
@@ -164,7 +158,19 @@ fun NokiaLcdDisplay(
                                 .fillMaxWidth()
                         ) {
                             when (openedItem?.id) {
-                                // US 1.4: Sottomenu "Connessioni" (Wi-Fi, Rete/Dati, Bluetooth, Hotspot)
+                                // US 2.1 & US 2.2: Sottomenu "Portiere Detox"
+                                NokiaViewModel.MENU_ID_GUARD -> {
+                                    NokiaGuardStatusSubMenu(
+                                        selectedOptionIndex = subMenuCursorIndex,
+                                        isDetoxActive = isDetoxActive,
+                                        isGuardPermissionEnabled = isGuardPermissionEnabled,
+                                        blockedAttemptsCount = blockedAttemptsCount,
+                                        lastBlockedApp = lastBlockedApp,
+                                        palette = palette
+                                    )
+                                }
+
+                                // US 1.4: Sottomenu "Connessioni"
                                 NokiaViewModel.MENU_ID_CONNECTIONS -> {
                                     NokiaConnectionsSubMenu(
                                         selectedOptionIndex = subMenuCursorIndex,
@@ -172,7 +178,7 @@ fun NokiaLcdDisplay(
                                     )
                                 }
 
-                                // US 1.3: Sottomenu "App Consentite" (Whitelist configurabile)
+                                // US 1.3: Sottomenu "App Consentite"
                                 NokiaViewModel.MENU_ID_WHITELIST -> {
                                     NokiaWhitelistSubMenu(
                                         apps = configurableApps,
@@ -182,7 +188,7 @@ fun NokiaLcdDisplay(
                                     )
                                 }
 
-                                // Sottomenu "Tema Display" (4 temi Anti-Luce Blu)
+                                // Sottomenu "Tema Display"
                                 NokiaViewModel.MENU_ID_THEME -> {
                                     NokiaThemeSelectorSubMenu(
                                         selectedThemeIndex = subMenuCursorIndex,
@@ -190,7 +196,6 @@ fun NokiaLcdDisplay(
                                     )
                                 }
 
-                                // Altri sottomenu (Orari Detox, Sblocco SOS)
                                 null -> {
                                     LazyColumn(
                                         state = mainListState,
@@ -230,7 +235,6 @@ fun NokiaLcdDisplay(
                         )
                     }
 
-                    // Barra verticale destra: 4 Tacche della Batteria
                     NokiaVerticalBarMeter(
                         activeBars = batteryBars,
                         maxBars = 4,
@@ -242,6 +246,51 @@ fun NokiaLcdDisplay(
                 }
             }
         }
+    }
+}
+
+/**
+ * US 2.1 & US 2.2 - Sottomenu "Portiere Detox" (`DetoxGuardService`):
+ * Mostra lo stato del blocco, il permesso AccessibilityService e i tentativi intercettati.
+ */
+@Composable
+private fun NokiaGuardStatusSubMenu(
+    selectedOptionIndex: Int,
+    isDetoxActive: Boolean,
+    isGuardPermissionEnabled: Boolean,
+    blockedAttemptsCount: Int,
+    lastBlockedApp: String?,
+    palette: NokiaLcdPalette
+) {
+    val rows = listOf(
+        "1. Blocco: ${if (isDetoxActive) "ATTIVO 🔒" else "PAUSA 🔓"}",
+        "2. Permesso: ${if (isGuardPermissionEnabled) "ATTIVO ✓" else "ABILITA ⚙"}",
+        "3. Bloccate: $blockedAttemptsCount (${lastBlockedApp ?: "Nessuna"})"
+    )
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Text(
+            text = "PORTIERE DETOX (US 2.1 & 2.2):",
+            style = MaterialTheme.typography.labelMedium,
+            color = palette.lcdInk,
+            fontWeight = FontWeight.Black
+        )
+        rows.forEachIndexed { idx, rowText ->
+            NokiaMenuRow(
+                text = rowText,
+                isSelected = (idx == selectedOptionIndex),
+                palette = palette
+            )
+        }
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = "✓ Blocca App fuori Whitelist e Home\n✓ Blocca Impostazioni e Notifiche",
+            style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp),
+            color = palette.lcdInk
+        )
     }
 }
 
@@ -317,7 +366,7 @@ private fun NokiaTopHeader(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = if (detoxActive) "🔒 MODALITÀ NOKIA" else "MODALITÀ NOKIA",
+                text = if (detoxActive) "🔒 MODALITÀ NOKIA" else "🔓 NOKIA (PAUSA)",
                 style = MaterialTheme.typography.labelMedium,
                 color = inkColor,
                 fontWeight = FontWeight.Black
@@ -396,10 +445,6 @@ private fun NokiaMenuRow(
     }
 }
 
-/**
- * US 1.4 - Sottomenu "Connessioni":
- * permette di aprire i controlli rapidi di Wi-Fi, Rete/Dati, Bluetooth e Hotspot.
- */
 @Composable
 private fun NokiaConnectionsSubMenu(
     selectedOptionIndex: Int,
@@ -427,10 +472,6 @@ private fun NokiaConnectionsSubMenu(
     }
 }
 
-/**
- * US 1.3 - Sottomenu "App Consentite" (Whitelist):
- * mostra tutte le app disponibili con spunta [✓] o [ ] e permette di aggiungerle/rimuoverle dal Nokia.
- */
 @Composable
 private fun NokiaWhitelistSubMenu(
     apps: List<AllowedApp>,

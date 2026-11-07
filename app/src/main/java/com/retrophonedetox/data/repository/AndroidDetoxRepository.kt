@@ -13,13 +13,11 @@ import com.retrophonedetox.domain.model.AllowedApp
 import com.retrophonedetox.domain.model.ConnectionOption
 import com.retrophonedetox.domain.repository.AppLaunchResult
 import com.retrophonedetox.domain.repository.DetoxRepository
+import com.retrophonedetox.service.DetoxGuardService
 import com.retrophonedetox.ui.theme.NokiaLcdPalette
 
 /**
- * Implementazione concreta del Repository Android per US 1.3 e US 1.4:
- * - Salva in locale (SharedPreferences) la Whitelist delle app scelte e il tema Anti-Luce Blu.
- * - Apre le vere app installate sul telefono tramite Intent di sistema (stile Super Risparmio Energetico).
- * - Apre i pannelli rapidi di Wi-Fi, Rete, Bluetooth e Hotspot senza passare dal menu generale Impostazioni.
+ * Implementazione concreta del Repository Android per Sprint 1 (US 1.3, 1.4) e Sprint 2 (US 2.1, 2.2).
  */
 class AndroidDetoxRepository(
     private val context: Context
@@ -124,20 +122,42 @@ class AndroidDetoxRepository(
     override fun getWhitelistedPackages(): Set<String> {
         val allowed = mutableSetOf(context.packageName)
         val enabledApps = getConfigurableApps().filter { it.isEnabled }
-        enabledApps.forEach { allowed.add(it.packageName) }
-
-        // Aggiungiamo anche il pacchetto SMS predefinito effettivo del dispositivo
-        Telephony.Sms.getDefaultSmsPackage(context)?.let { allowed.add(it) }
+        enabledApps.forEach { app ->
+            allowed.add(app.packageName)
+            // Aggiunge varianti comuni dei produttori (Samsung, Xiaomi, Google) per le app abilitate
+            when (app.id) {
+                "phone" -> {
+                    allowed.add("com.google.android.dialer")
+                    allowed.add("com.samsung.android.dialer")
+                    allowed.add("com.android.contacts")
+                }
+                "messages" -> {
+                    allowed.add("com.samsung.android.messaging")
+                    allowed.add("com.android.mms")
+                    Telephony.Sms.getDefaultSmsPackage(context)?.let { allowed.add(it) }
+                }
+                "clock" -> {
+                    allowed.add("com.sec.android.app.clockpackage")
+                    allowed.add("com.android.deskclock")
+                }
+                "calculator" -> {
+                    allowed.add("com.sec.android.app.popupcalculator")
+                    allowed.add("com.miui.calculator")
+                }
+                "camera" -> {
+                    allowed.add("com.sec.android.app.camera")
+                    allowed.add("com.google.android.GoogleCamera")
+                }
+            }
+        }
         return allowed
     }
 
     override fun launchRealApp(appId: String, packageName: String, title: String): AppLaunchResult {
         return try {
             val intent: Intent? = when (appId) {
-                // 1. Telefono: apre sempre il compositore telefonico reale del dispositivo
                 "phone" -> Intent(Intent.ACTION_DIAL)
 
-                // 2. Messaggi SMS: apre l'app SMS predefinita del telefono
                 "messages" -> {
                     val defaultSmsPkg = Telephony.Sms.getDefaultSmsPackage(context)
                     if (defaultSmsPkg != null) {
@@ -149,13 +169,11 @@ class AndroidDetoxRepository(
                     } ?: Intent(Intent.ACTION_VIEW, Uri.parse("sms:"))
                 }
 
-                // 3. Sveglia / Orologio: prova il pacchetto o l'azione di sistema sveglia
                 "clock" -> {
                     context.packageManager.getLaunchIntentForPackage(packageName)
                         ?: Intent(AlarmClock.ACTION_SHOW_ALARMS)
                 }
 
-                // 4. Calcolatrice: prova il pacchetto o la categoria calcolatrice standard
                 "calculator" -> {
                     context.packageManager.getLaunchIntentForPackage(packageName)
                         ?: Intent(Intent.ACTION_MAIN).apply {
@@ -163,13 +181,11 @@ class AndroidDetoxRepository(
                         }
                 }
 
-                // 5. Fotocamera: apre l'app fotocamera reale del telefono
                 "camera" -> {
                     context.packageManager.getLaunchIntentForPackage(packageName)
                         ?: Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
                 }
 
-                // 6. Qualsiasi altra app (WhatsApp, Google Maps, Spotify, ecc.): cerca il pacchetto installato
                 else -> context.packageManager.getLaunchIntentForPackage(packageName)
             }
 
@@ -186,28 +202,20 @@ class AndroidDetoxRepository(
     }
 
     /**
-     * US 1.4 - Apre i pannelli rapidi di sistema (Android Settings Panel / Intent mirati)
-     * per Wi-Fi, Dati Mobili, Bluetooth e Hotspot senza aprire la home delle Impostazioni.
+     * US 1.4 & US 2.2 - Apre i pannelli rapidi di sistema (Wi-Fi, Dati, Bluetooth, Hotspot)
+     * e registra una finestra temporanea di 45 secondi (`KEY_SETTINGS_GRACE_UNTIL_MS`)
+     * così il "Portiere" lascia usare lo switch di connessione senza bloccarlo.
      */
     override fun openConnectionControl(option: ConnectionOption): Boolean {
         return try {
+            // Autorizza temporaneamente il pannello Connessioni per 45 secondi nel Portiere (US 2.2)
+            allowConnectionSettingsTemporarily(durationMs = 45_000L)
+
             val intent = when (option) {
-                ConnectionOption.WIFI_PANEL -> {
-                    // Android 10+ (API 29+): apre il pannello fluttuante del Wi-Fi sopra il Nokia!
-                    Intent(Settings.Panel.ACTION_WIFI)
-                }
-
-                ConnectionOption.INTERNET_DATA -> {
-                    // Pannello fluttuante Connessioni Internet (Wi-Fi + Dati Mobili + Modalità Aereo)
-                    Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY)
-                }
-
-                ConnectionOption.BLUETOOTH -> {
-                    Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
-                }
-
+                ConnectionOption.WIFI_PANEL -> Intent(Settings.Panel.ACTION_WIFI)
+                ConnectionOption.INTERNET_DATA -> Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY)
+                ConnectionOption.BLUETOOTH -> Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
                 ConnectionOption.HOTSPOT -> {
-                    // Tenta l'apertura diretta della schermata Tethering/Hotspot, altrimenti pannello Wireless
                     Intent(Intent.ACTION_MAIN).apply {
                         component = ComponentName(
                             "com.android.settings",
@@ -221,7 +229,6 @@ class AndroidDetoxRepository(
             try {
                 context.startActivity(intent)
             } catch (fallback: Exception) {
-                // Fallback sicuro se il produttore (Samsung/Xiaomi) usa un nome diverso per l'Hotspot
                 val fallbackIntent = Intent(Settings.ACTION_WIRELESS_SETTINGS).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
@@ -230,6 +237,76 @@ class AndroidDetoxRepository(
             true
         } catch (e: Exception) {
             false
+        }
+    }
+
+    override fun isDetoxBlockingActive(): Boolean {
+        return prefs.getBoolean(KEY_DETOX_ACTIVE, true)
+    }
+
+    override fun setDetoxBlockingActive(active: Boolean) {
+        prefs.edit().putBoolean(KEY_DETOX_ACTIVE, active).apply()
+    }
+
+    override fun isGuardServiceEnabled(): Boolean {
+        return try {
+            val expectedComponent = ComponentName(context, DetoxGuardService::class.java).flattenToString()
+            val enabledServices = Settings.Secure.getString(
+                context.contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            ).orEmpty()
+            enabledServices.split(':').any { it.equals(expectedComponent, ignoreCase = true) }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    override fun openAccessibilityPermissionSettings(): Boolean {
+        return try {
+            // Concede 60 secondi per abilitare il permesso del Portiere nelle Impostazioni di Accessibilità
+            allowConnectionSettingsTemporarily(durationMs = 60_000L)
+            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun allowConnectionSettingsTemporarily(durationMs: Long) {
+        val until = System.currentTimeMillis() + durationMs
+        prefs.edit().putLong(KEY_SETTINGS_GRACE_UNTIL_MS, until).apply()
+    }
+
+    fun isConnectionSettingsTemporarilyAllowed(): Boolean {
+        val until = prefs.getLong(KEY_SETTINGS_GRACE_UNTIL_MS, 0L)
+        return System.currentTimeMillis() < until
+    }
+
+    override fun recordLastBlockedApp(appName: String) {
+        val currentCount = getBlockedAttemptsCount()
+        prefs.edit()
+            .putString(KEY_LAST_BLOCKED_APP, appName)
+            .putInt(KEY_BLOCKED_COUNT, currentCount + 1)
+            .apply()
+    }
+
+    override fun getLastBlockedApp(): String? {
+        return prefs.getString(KEY_LAST_BLOCKED_APP, null)
+    }
+
+    override fun getBlockedAttemptsCount(): Int {
+        return prefs.getInt(KEY_BLOCKED_COUNT, 0)
+    }
+
+    fun resolveReadableAppName(packageName: String): String {
+        return try {
+            val appInfo = context.packageManager.getApplicationInfo(packageName, 0)
+            context.packageManager.getApplicationLabel(appInfo).toString()
+        } catch (e: Exception) {
+            packageName.substringAfterLast('.')
         }
     }
 
@@ -262,5 +339,9 @@ class AndroidDetoxRepository(
         private const val PREFS_NAME = "modalita_nokia_prefs"
         private const val KEY_ENABLED_APP_IDS = "enabled_whitelist_app_ids"
         private const val KEY_PALETTE_NAME = "selected_lcd_palette"
+        private const val KEY_DETOX_ACTIVE = "detox_blocking_active"
+        private const val KEY_SETTINGS_GRACE_UNTIL_MS = "settings_grace_until_ms"
+        private const val KEY_LAST_BLOCKED_APP = "last_blocked_app_name"
+        private const val KEY_BLOCKED_COUNT = "blocked_attempts_count"
     }
 }

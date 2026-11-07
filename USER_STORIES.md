@@ -13,8 +13,8 @@ Lo sviluppo di **RetroPhone Detox** è suddiviso in **5 Epic** incrementali. Ogn
 ---
 
 ## 🛡️ EPIC 2: Il "Portiere" (Blocco App Non Autorizzate) (Sprint 2)
-- [ ] **US 2.1 - Guardia delle App (`AccessibilityService`):** Durante la modalità Detox, se l'utente tenta di aprire un'app non presente nella Whitelist o preme il tasto Home per tornare al launcher standard, il servizio intercetta l'evento e riporta istantaneamente l'utente sulla schermata del Nokia.
-- [ ] **US 2.2 - Protezione Impostazioni e Tendina Notifiche:** Blocco dell'apertura delle Impostazioni generali di Android (per impedire arresto forzato o disinstallazione durante il blocco) e chiusura automatica della tendina delle notifiche.
+- [x] **US 2.1 - Guardia delle App (`AccessibilityService`):** Durante la modalità Detox, se l'utente tenta di aprire un'app non presente nella Whitelist o preme il tasto Home per tornare al launcher standard, il servizio intercetta l'evento e riporta istantaneamente l'utente sulla schermata del Nokia.
+- [x] **US 2.2 - Protezione Impostazioni e Tendina Notifiche:** Blocco dell'apertura delle Impostazioni generali di Android (per impedire arresto forzato o disinstallazione durante il blocco) e chiusura automatica della tendina delle notifiche.
 
 ---
 

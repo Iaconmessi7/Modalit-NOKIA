@@ -21,7 +21,7 @@ import com.retrophonedetox.ui.viewmodel.NokiaViewModel
 import com.retrophonedetox.ui.viewmodel.buildNokiaMenuFromWhitelist
 
 /**
- * Schermata principale della Modalità NOKIA (Sprint 1: US 1.1, 1.2, 1.3, 1.4).
+ * Schermata principale della Modalità NOKIA (Sprint 1 + Sprint 2).
  */
 @Composable
 fun NokiaHomeScreen(
@@ -47,7 +47,6 @@ fun NokiaHomeContent(
             .background(Nokia5200ShellColors.ShellIvory)
             .safeDrawingPadding()
     ) {
-        // 80% SUPERIORE: Display LCD a tutta larghezza + Bordino superiore con logo NOKIA
         NokiaLcdDisplay(
             menuItems = uiState.menuItems,
             configurableApps = uiState.configurableApps,
@@ -56,6 +55,9 @@ fun NokiaHomeContent(
             batteryBars = uiState.batteryBars,
             signalBars = uiState.signalBars,
             isDetoxActive = uiState.isDetoxActive,
+            isGuardPermissionEnabled = uiState.isGuardPermissionEnabled,
+            blockedAttemptsCount = uiState.blockedAttemptsCount,
+            lastBlockedApp = uiState.lastBlockedApp,
             openedItem = uiState.openedItem,
             subMenuCursorIndex = uiState.subMenuCursorIndex,
             statusBanner = uiState.statusBanner,
@@ -63,7 +65,6 @@ fun NokiaHomeContent(
             modifier = Modifier.weight(0.8f)
         )
 
-        // 20% INFERIORE: Tastierino Fisico Ergonomico a 5 tasti con vibrazione
         NokiaKeypad(
             onKeyPress = onKeyPress,
             modifier = Modifier.weight(0.2f)

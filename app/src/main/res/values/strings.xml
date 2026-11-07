@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Modalità NOKIA</string>
+    <string name="detox_guard_service_label">Portiere Modalità NOKIA</string>
+    <string name="detox_guard_service_description">Protegge la tua sessione Digital Detox bloccando l\'apertura delle app fuori dalla Whitelist del Nokia e impedendo modifiche non autorizzate alle Impostazioni.</string>
 </resources>

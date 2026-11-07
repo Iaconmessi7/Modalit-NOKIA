@@ -32,12 +32,34 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+                <!-- Permette anche di impostare Modalità NOKIA come Launcher Home se desiderato -->
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!--
+          US 2.1 & US 2.2 - Il "Portiere" (DetoxGuardService):
+          Servizio di Accessibilità Android che blocca le app fuori dalla Whitelist,
+          protegge le Impostazioni generali e chiude la tendina delle notifiche.
+        -->
+        <service
+            android:name=".service.DetoxGuardService"
+            android:exported="false"
+            android:label="@string/detox_guard_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/detox_accessibility_service" />
+        </service>
 
     </application>
 
