@@ -1,5 +1,7 @@
 package com.retrophonedetox.data.repository
 
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -11,13 +13,16 @@ import android.provider.Settings
 import android.provider.Telephony
 import com.retrophonedetox.domain.model.AllowedApp
 import com.retrophonedetox.domain.model.ConnectionOption
+import com.retrophonedetox.domain.model.DetoxSchedule
 import com.retrophonedetox.domain.repository.AppLaunchResult
 import com.retrophonedetox.domain.repository.DetoxRepository
+import com.retrophonedetox.service.DetoxAlarmReceiver
 import com.retrophonedetox.service.DetoxGuardService
 import com.retrophonedetox.ui.theme.NokiaLcdPalette
+import java.util.Calendar
 
 /**
- * Implementazione concreta del Repository Android per Sprint 1 (US 1.3, 1.4) e Sprint 2 (US 2.1, 2.2).
+ * Implementazione concreta del Repository Android per Sprint 1, Sprint 2 e Sprint 3 (US 3.1 & US 3.2).
  */
 class AndroidDetoxRepository(
     private val context: Context
@@ -25,7 +30,7 @@ class AndroidDetoxRepository(
 
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    /** Catalogo predefinito di app utili selezionabili nella Whitelist del Nokia */
+    /** Catalogo predefinito di app utili selezionabili nella Whitelist del Nokia (US 1.3) */
     private val defaultCatalog = listOf(
         AllowedApp(
             id = "phone",
@@ -93,6 +98,76 @@ class AndroidDetoxRepository(
         )
     )
 
+    /**
+     * US 3.2 - Fasce orarie ricorrenti predefinite (Stile Sveglia) attivabili/disattivabili.
+     */
+    private val defaultSchedules = listOf(
+        DetoxSchedule(
+            id = "morning_focus",
+            title = "Mattina 09:00-13:00",
+            daysTag = "L-V",
+            startHour = 9,
+            startMinute = 0,
+            endHour = 13,
+            endMinute = 0,
+            daysOfWeek = setOf(
+                Calendar.MONDAY,
+                Calendar.TUESDAY,
+                Calendar.WEDNESDAY,
+                Calendar.THURSDAY,
+                Calendar.FRIDAY
+            ),
+            isEnabled = true
+        ),
+        DetoxSchedule(
+            id = "afternoon_study",
+            title = "Pomerig. 14:30-18:30",
+            daysTag = "L-V",
+            startHour = 14,
+            startMinute = 30,
+            endHour = 18,
+            endMinute = 30,
+            daysOfWeek = setOf(
+                Calendar.MONDAY,
+                Calendar.TUESDAY,
+                Calendar.WEDNESDAY,
+                Calendar.THURSDAY,
+                Calendar.FRIDAY
+            ),
+            isEnabled = false
+        ),
+        DetoxSchedule(
+            id = "night_detox",
+            title = "Notte 22:30-07:00",
+            daysTag = "7gg",
+            startHour = 22,
+            startMinute = 30,
+            endHour = 7,
+            endMinute = 0,
+            daysOfWeek = setOf(
+                Calendar.MONDAY,
+                Calendar.TUESDAY,
+                Calendar.WEDNESDAY,
+                Calendar.THURSDAY,
+                Calendar.FRIDAY,
+                Calendar.SATURDAY,
+                Calendar.SUNDAY
+            ),
+            isEnabled = true
+        ),
+        DetoxSchedule(
+            id = "weekend_detox",
+            title = "Weekend 10:00-14:00",
+            daysTag = "S-D",
+            startHour = 10,
+            startMinute = 0,
+            endHour = 14,
+            endMinute = 0,
+            daysOfWeek = setOf(Calendar.SATURDAY, Calendar.SUNDAY),
+            isEnabled = false
+        )
+    )
+
     override fun getConfigurableApps(): List<AllowedApp> {
         val savedIds = prefs.getStringSet(KEY_ENABLED_APP_IDS, null)
         return if (savedIds == null) {
@@ -124,7 +199,6 @@ class AndroidDetoxRepository(
         val enabledApps = getConfigurableApps().filter { it.isEnabled }
         enabledApps.forEach { app ->
             allowed.add(app.packageName)
-            // Aggiunge varianti comuni dei produttori (Samsung, Xiaomi, Google) per le app abilitate
             when (app.id) {
                 "phone" -> {
                     allowed.add("com.google.android.dialer")
@@ -201,14 +275,8 @@ class AndroidDetoxRepository(
         }
     }
 
-    /**
-     * US 1.4 & US 2.2 - Apre i pannelli rapidi di sistema (Wi-Fi, Dati, Bluetooth, Hotspot)
-     * e registra una finestra temporanea di 45 secondi (`KEY_SETTINGS_GRACE_UNTIL_MS`)
-     * così il "Portiere" lascia usare lo switch di connessione senza bloccarlo.
-     */
     override fun openConnectionControl(option: ConnectionOption): Boolean {
         return try {
-            // Autorizza temporaneamente il pannello Connessioni per 45 secondi nel Portiere (US 2.2)
             allowConnectionSettingsTemporarily(durationMs = 45_000L)
 
             val intent = when (option) {
@@ -241,11 +309,174 @@ class AndroidDetoxRepository(
     }
 
     override fun isDetoxBlockingActive(): Boolean {
+        clearExpiredQuickTimerIfNeeded()
+        // Il blocco è attivo se:
+        // 1. È attivo un timer rapido manuale (US 3.1), oppure
+        // 2. Siamo dentro una fascia oraria programmata attiva (US 3.2), oppure
+        // 3. Il flag manuale del Portiere è attivo
+        if (getRemainingQuickTimerMinutes() > 0) return true
+        if (isAnyScheduleCurrentlyActive()) return true
         return prefs.getBoolean(KEY_DETOX_ACTIVE, true)
     }
 
     override fun setDetoxBlockingActive(active: Boolean) {
-        prefs.edit().putBoolean(KEY_DETOX_ACTIVE, active).apply()
+        if (!active) {
+            // Se viene disattivato manualmente, azzera anche eventuale timer rapido
+            prefs.edit()
+                .putBoolean(KEY_DETOX_ACTIVE, false)
+                .putLong(KEY_QUICK_TIMER_END_MS, 0L)
+                .apply()
+        } else {
+            prefs.edit().putBoolean(KEY_DETOX_ACTIVE, true).apply()
+        }
+    }
+
+    /**
+     * US 3.1 - Avvia subito una sessione Detox manuale per `durationMinutes` minuti
+     * e imposta un allarme di sistema (`AlarmManager`) per lo sblocco automatico alla scadenza.
+     */
+    override fun startQuickDetoxTimer(durationMinutes: Int) {
+        val endTimeMs = System.currentTimeMillis() + durationMinutes * 60_000L
+        prefs.edit()
+            .putLong(KEY_QUICK_TIMER_END_MS, endTimeMs)
+            .putBoolean(KEY_DETOX_ACTIVE, true)
+            .apply()
+
+        scheduleSystemAlarm(
+            triggerAtMillis = endTimeMs,
+            action = DetoxAlarmReceiver.ACTION_ALARM_TIMER_EXPIRED,
+            requestCode = REQ_CODE_QUICK_TIMER
+        )
+    }
+
+    override fun getRemainingQuickTimerMinutes(): Int {
+        val endTimeMs = prefs.getLong(KEY_QUICK_TIMER_END_MS, 0L)
+        val remainingMs = endTimeMs - System.currentTimeMillis()
+        return if (remainingMs > 0L) {
+            ((remainingMs + 59_999L) / 60_000L).toInt()
+        } else {
+            0
+        }
+    }
+
+    override fun clearExpiredQuickTimerIfNeeded() {
+        val endTimeMs = prefs.getLong(KEY_QUICK_TIMER_END_MS, 0L)
+        if (endTimeMs > 0L && System.currentTimeMillis() >= endTimeMs) {
+            prefs.edit().putLong(KEY_QUICK_TIMER_END_MS, 0L).apply()
+        }
+    }
+
+    /**
+     * US 3.2 - Restituisce le fasce orarie ricorrenti salvate.
+     */
+    override fun getSchedules(): List<DetoxSchedule> {
+        val savedIds = prefs.getStringSet(KEY_ENABLED_SCHEDULE_IDS, null)
+        return if (savedIds == null) {
+            defaultSchedules
+        } else {
+            defaultSchedules.map { schedule ->
+                schedule.copy(isEnabled = savedIds.contains(schedule.id))
+            }
+        }
+    }
+
+    override fun toggleSchedule(scheduleId: String): List<DetoxSchedule> {
+        val updated = getSchedules().map { schedule ->
+            if (schedule.id == scheduleId) {
+                schedule.copy(isEnabled = !schedule.isEnabled)
+            } else {
+                schedule
+            }
+        }
+        val enabledIds = updated.filter { it.isEnabled }.map { it.id }.toSet()
+        prefs.edit().putStringSet(KEY_ENABLED_SCHEDULE_IDS, enabledIds).apply()
+
+        // Se una fascia attiva copre l'orario attuale, attiva subito il blocco
+        if (updated.any { it.isCurrentlyInWindow() }) {
+            prefs.edit().putBoolean(KEY_DETOX_ACTIVE, true).apply()
+        }
+        syncScheduledAlarms()
+        return updated
+    }
+
+    override fun isAnyScheduleCurrentlyActive(): Boolean {
+        val now = Calendar.getInstance()
+        return getSchedules().any { it.isCurrentlyInWindow(now) }
+    }
+
+    /**
+     * US 3.2 - Calcola il prossimo inizio e la prossima fine delle fasce orarie attive
+     * e li registra su `AlarmManager` di Android.
+     */
+    override fun syncScheduledAlarms() {
+        val enabledSchedules = getSchedules().filter { it.isEnabled }
+        if (enabledSchedules.isEmpty()) return
+
+        val now = Calendar.getInstance()
+        var nextStartMillis: Long? = null
+        var nextEndMillis: Long? = null
+
+        enabledSchedules.forEach { schedule ->
+            val candidateStart = computeNextTransitionMillis(now, schedule.startHour, schedule.startMinute)
+            val candidateEnd = computeNextTransitionMillis(now, schedule.endHour, schedule.endMinute)
+
+            if (nextStartMillis == null || candidateStart < nextStartMillis!!) {
+                nextStartMillis = candidateStart
+            }
+            if (nextEndMillis == null || candidateEnd < nextEndMillis!!) {
+                nextEndMillis = candidateEnd
+            }
+        }
+
+        nextStartMillis?.let {
+            scheduleSystemAlarm(
+                triggerAtMillis = it,
+                action = DetoxAlarmReceiver.ACTION_ALARM_START_DETOX,
+                requestCode = REQ_CODE_SCHEDULE_START
+            )
+        }
+        nextEndMillis?.let {
+            scheduleSystemAlarm(
+                triggerAtMillis = it,
+                action = DetoxAlarmReceiver.ACTION_ALARM_END_DETOX,
+                requestCode = REQ_CODE_SCHEDULE_END
+            )
+        }
+    }
+
+    private fun computeNextTransitionMillis(now: Calendar, targetHour: Int, targetMinute: Int): Long {
+        val cal = (now.clone() as Calendar).apply {
+            set(Calendar.HOUR_OF_DAY, targetHour)
+            set(Calendar.MINUTE, targetMinute)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        if (cal.timeInMillis <= now.timeInMillis) {
+            cal.add(Calendar.DAY_OF_YEAR, 1)
+        }
+        return cal.timeInMillis
+    }
+
+    private fun scheduleSystemAlarm(triggerAtMillis: Long, action: String, requestCode: Int) {
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            val intent = Intent(context, DetoxAlarmReceiver::class.java).apply {
+                this.action = action
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                requestCode,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            alarmManager.setAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                triggerAtMillis,
+                pendingIntent
+            )
+        } catch (e: Exception) {
+            // Ignora in ambienti di preview/test privi di AlarmManager
+        }
     }
 
     override fun isGuardServiceEnabled(): Boolean {
@@ -263,7 +494,6 @@ class AndroidDetoxRepository(
 
     override fun openAccessibilityPermissionSettings(): Boolean {
         return try {
-            // Concede 60 secondi per abilitare il permesso del Portiere nelle Impostazioni di Accessibilità
             allowConnectionSettingsTemporarily(durationMs = 60_000L)
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -338,10 +568,16 @@ class AndroidDetoxRepository(
     companion object {
         private const val PREFS_NAME = "modalita_nokia_prefs"
         private const val KEY_ENABLED_APP_IDS = "enabled_whitelist_app_ids"
+        private const val KEY_ENABLED_SCHEDULE_IDS = "enabled_schedule_ids"
+        private const val KEY_QUICK_TIMER_END_MS = "quick_timer_end_ms"
         private const val KEY_PALETTE_NAME = "selected_lcd_palette"
         private const val KEY_DETOX_ACTIVE = "detox_blocking_active"
         private const val KEY_SETTINGS_GRACE_UNTIL_MS = "settings_grace_until_ms"
         private const val KEY_LAST_BLOCKED_APP = "last_blocked_app_name"
         private const val KEY_BLOCKED_COUNT = "blocked_attempts_count"
+
+        private const val REQ_CODE_QUICK_TIMER = 1001
+        private const val REQ_CODE_SCHEDULE_START = 1002
+        private const val REQ_CODE_SCHEDULE_END = 1003
     }
 }

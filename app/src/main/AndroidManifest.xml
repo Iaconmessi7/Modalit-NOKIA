@@ -4,6 +4,9 @@
     <!-- Permesso per la vibrazione fisica dei tasti Nokia (US 1.2) -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Permesso per riprogrammare le fasce orarie Detox al riavvio del telefono (US 3.2) -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <!--
       US 1.3 - Da Android 11 (API 30) in poi, il blocco <queries> è obbligatorio
       per permettere a PackageManager di vedere e aprire le altre app installate
@@ -37,7 +40,6 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
-                <!-- Permette anche di impostare Modalità NOKIA come Launcher Home se desiderato -->
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
@@ -60,6 +62,22 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/detox_accessibility_service" />
         </service>
+
+        <!--
+          US 3.1 & US 3.2 - Ricevitore Automatico Orari e Timer (DetoxAlarmReceiver):
+          Attiva e disattiva automaticamente la Modalità NOKIA nelle fasce orarie programmate.
+        -->
+        <receiver
+            android:name=".service.DetoxAlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.retrophonedetox.action.ALARM_START_DETOX" />
+                <action android:name="com.retrophonedetox.action.ALARM_END_DETOX" />
+                <action android:name="com.retrophonedetox.action.ALARM_TIMER_EXPIRED" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
     </application>
 

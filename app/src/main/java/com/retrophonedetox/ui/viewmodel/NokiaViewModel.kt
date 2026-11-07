@@ -5,8 +5,10 @@ import androidx.lifecycle.AndroidViewModel
 import com.retrophonedetox.data.repository.AndroidDetoxRepository
 import com.retrophonedetox.domain.model.AllowedApp
 import com.retrophonedetox.domain.model.ConnectionOption
+import com.retrophonedetox.domain.model.DetoxSchedule
 import com.retrophonedetox.domain.model.NokiaKey
 import com.retrophonedetox.domain.model.NokiaMenuItem
+import com.retrophonedetox.domain.model.QuickTimerPreset
 import com.retrophonedetox.domain.repository.AppLaunchResult
 import com.retrophonedetox.domain.repository.DetoxRepository
 import com.retrophonedetox.ui.theme.NokiaLcdPalette
@@ -19,10 +21,12 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Stato immutabile della schermata Nokia (Sprint 1 + Sprint 2).
+ * Stato immutabile della schermata Nokia (Sprint 1 + Sprint 2 + Sprint 3).
  */
 data class NokiaUiState(
     val configurableApps: List<AllowedApp> = emptyList(),
+    val schedules: List<DetoxSchedule> = emptyList(),
+    val remainingQuickTimerMinutes: Int = 0,
     val menuItems: List<NokiaMenuItem> = emptyList(),
     val selectedIndex: Int = 0,
     val openedItem: NokiaMenuItem? = null,
@@ -39,11 +43,8 @@ data class NokiaUiState(
 )
 
 /**
- * ViewModel principale della Modalità NOKIA (Sprint 1 + Sprint 2: Il "Portiere"):
- * - Gestisce il menu dinamico delle app in Whitelist e il loro avvio tramite Intent (US 1.3)
- * - Gestisce il pannello Connessioni con finestra temporanea autorizzata nel Portiere (US 1.4 + US 2.2)
- * - Gestisce lo stato del "Portiere" `DetoxGuardService` (US 2.1 & US 2.2): attivazione blocco,
- *   verifica permesso Accessibilità e contatore delle app non autorizzate bloccate.
+ * ViewModel principale della Modalità NOKIA (Sprint 1, 2 e 3):
+ * Include anche US 3.1 (Sessioni rapide a tempo 30m / 1h / 2h) e US 3.2 (Fasce orarie automatiche stile Sveglia).
  */
 class NokiaViewModel(
     application: Application
@@ -55,9 +56,13 @@ class NokiaViewModel(
     val uiState: StateFlow<NokiaUiState> = _uiState.asStateFlow()
 
     private fun createInitialState(): NokiaUiState {
+        repository.syncScheduledAlarms()
         val apps = repository.getConfigurableApps()
+        val schedules = repository.getSchedules()
         return NokiaUiState(
             configurableApps = apps,
+            schedules = schedules,
+            remainingQuickTimerMinutes = repository.getRemainingQuickTimerMinutes(),
             menuItems = buildNokiaMenuFromWhitelist(apps),
             isDetoxActive = repository.isDetoxBlockingActive(),
             isGuardPermissionEnabled = repository.isGuardServiceEnabled(),
@@ -68,13 +73,11 @@ class NokiaViewModel(
         )
     }
 
-    /**
-     * Aggiorna lo stato quando l'utente torna sulla schermata del Nokia (es. dopo aver attivato
-     * il permesso di Accessibilità o dopo che il Portiere ha bloccato un'app non autorizzata).
-     */
     fun refreshSystemStatus(blockedBanner: String? = null) {
         _uiState.update { current ->
             current.copy(
+                schedules = repository.getSchedules(),
+                remainingQuickTimerMinutes = repository.getRemainingQuickTimerMinutes(),
                 isDetoxActive = repository.isDetoxBlockingActive(),
                 isGuardPermissionEnabled = repository.isGuardServiceEnabled(),
                 blockedAttemptsCount = repository.getBlockedAttemptsCount(),
@@ -90,17 +93,37 @@ class NokiaViewModel(
         _uiState.update { current ->
             val updatedTime = formatCurrentTime()
             val updatedBattery = repository.getBatteryBars()
+            val updatedTimerMinutes = repository.getRemainingQuickTimerMinutes()
             val themes = NokiaLcdPalette.entries
             val connectionOptions = ConnectionOption.entries
+            val quickPresets = QuickTimerPreset.entries
+            // Nel sottomenu "Orari Detox" ci sono 3 preset rapidi (US 3.1) + 4 fasce orarie (US 3.2) = 7 righe totali
+            val totalScheduleMenuRows = quickPresets.size + current.schedules.size
 
             when (key) {
                 // Tasto in Alto a Destra (▲): scorre in su
                 NokiaKey.UP -> {
                     when (current.openedItem?.id) {
+                        MENU_ID_SCHEDULE -> {
+                            val prev = if (current.subMenuCursorIndex - 1 < 0) {
+                                (totalScheduleMenuRows - 1).coerceAtLeast(0)
+                            } else {
+                                current.subMenuCursorIndex - 1
+                            }
+                            current.copy(
+                                subMenuCursorIndex = prev,
+                                remainingQuickTimerMinutes = updatedTimerMinutes,
+                                currentTime = updatedTime,
+                                batteryBars = updatedBattery,
+                                statusBanner = scheduleRowSubtitle(prev, quickPresets, current.schedules)
+                            )
+                        }
+
                         MENU_ID_GUARD -> {
                             val prev = if (current.subMenuCursorIndex - 1 < 0) 2 else current.subMenuCursorIndex - 1
                             current.copy(
                                 subMenuCursorIndex = prev,
+                                remainingQuickTimerMinutes = updatedTimerMinutes,
                                 currentTime = updatedTime,
                                 batteryBars = updatedBattery,
                                 statusBanner = guardOptionSubtitle(prev)
@@ -115,6 +138,7 @@ class NokiaViewModel(
                             }
                             current.copy(
                                 subMenuCursorIndex = prev,
+                                remainingQuickTimerMinutes = updatedTimerMinutes,
                                 currentTime = updatedTime,
                                 batteryBars = updatedBattery,
                                 statusBanner = connectionOptions[prev].subtitle
@@ -130,6 +154,7 @@ class NokiaViewModel(
                             val app = current.configurableApps[prev]
                             current.copy(
                                 subMenuCursorIndex = prev,
+                                remainingQuickTimerMinutes = updatedTimerMinutes,
                                 currentTime = updatedTime,
                                 batteryBars = updatedBattery,
                                 statusBanner = if (app.isEssential) "App essenziale (sempre attiva)" else "Premi OK per attivare/disattivare"
@@ -144,6 +169,7 @@ class NokiaViewModel(
                             }
                             current.copy(
                                 subMenuCursorIndex = prev,
+                                remainingQuickTimerMinutes = updatedTimerMinutes,
                                 currentTime = updatedTime,
                                 batteryBars = updatedBattery,
                                 statusBanner = "Anteprima: ${themes[prev].displayName}"
@@ -159,6 +185,7 @@ class NokiaViewModel(
                                 }
                                 current.copy(
                                     selectedIndex = prevIndex,
+                                    remainingQuickTimerMinutes = updatedTimerMinutes,
                                     currentTime = updatedTime,
                                     batteryBars = updatedBattery,
                                     statusBanner = null
@@ -175,10 +202,24 @@ class NokiaViewModel(
                 // Tasto in Basso a Destra (▼): scorre in giù
                 NokiaKey.DOWN -> {
                     when (current.openedItem?.id) {
+                        MENU_ID_SCHEDULE -> {
+                            val next = if (totalScheduleMenuRows > 0) {
+                                (current.subMenuCursorIndex + 1) % totalScheduleMenuRows
+                            } else 0
+                            current.copy(
+                                subMenuCursorIndex = next,
+                                remainingQuickTimerMinutes = updatedTimerMinutes,
+                                currentTime = updatedTime,
+                                batteryBars = updatedBattery,
+                                statusBanner = scheduleRowSubtitle(next, quickPresets, current.schedules)
+                            )
+                        }
+
                         MENU_ID_GUARD -> {
                             val next = (current.subMenuCursorIndex + 1) % 3
                             current.copy(
                                 subMenuCursorIndex = next,
+                                remainingQuickTimerMinutes = updatedTimerMinutes,
                                 currentTime = updatedTime,
                                 batteryBars = updatedBattery,
                                 statusBanner = guardOptionSubtitle(next)
@@ -189,6 +230,7 @@ class NokiaViewModel(
                             val next = (current.subMenuCursorIndex + 1) % connectionOptions.size
                             current.copy(
                                 subMenuCursorIndex = next,
+                                remainingQuickTimerMinutes = updatedTimerMinutes,
                                 currentTime = updatedTime,
                                 batteryBars = updatedBattery,
                                 statusBanner = connectionOptions[next].subtitle
@@ -200,6 +242,7 @@ class NokiaViewModel(
                             val app = current.configurableApps[next]
                             current.copy(
                                 subMenuCursorIndex = next,
+                                remainingQuickTimerMinutes = updatedTimerMinutes,
                                 currentTime = updatedTime,
                                 batteryBars = updatedBattery,
                                 statusBanner = if (app.isEssential) "App essenziale (sempre attiva)" else "Premi OK per attivare/disattivare"
@@ -210,6 +253,7 @@ class NokiaViewModel(
                             val next = (current.subMenuCursorIndex + 1) % themes.size
                             current.copy(
                                 subMenuCursorIndex = next,
+                                remainingQuickTimerMinutes = updatedTimerMinutes,
                                 currentTime = updatedTime,
                                 batteryBars = updatedBattery,
                                 statusBanner = "Anteprima: ${themes[next].displayName}"
@@ -221,6 +265,7 @@ class NokiaViewModel(
                                 val nextIndex = (current.selectedIndex + 1) % current.menuItems.size
                                 current.copy(
                                     selectedIndex = nextIndex,
+                                    remainingQuickTimerMinutes = updatedTimerMinutes,
                                     currentTime = updatedTime,
                                     batteryBars = updatedBattery,
                                     statusBanner = null
@@ -237,22 +282,58 @@ class NokiaViewModel(
                 // Tasto Centrale OK
                 NokiaKey.OK -> {
                     when (current.openedItem?.id) {
-                        // US 2.1 & US 2.2: Sottomenu "Portiere Detox"
+                        // US 3.1 & US 3.2: Sottomenu "Orari Detox"
+                        MENU_ID_SCHEDULE -> {
+                            if (current.subMenuCursorIndex < quickPresets.size) {
+                                // US 3.1: Avvia una sessione manuale rapida (30m, 1h, 2h)
+                                val chosenPreset = quickPresets[current.subMenuCursorIndex]
+                                repository.startQuickDetoxTimer(chosenPreset.minutes)
+                                current.copy(
+                                    isDetoxActive = true,
+                                    remainingQuickTimerMinutes = chosenPreset.minutes,
+                                    currentTime = updatedTime,
+                                    batteryBars = updatedBattery,
+                                    statusBanner = "⏱ Timer avviato: ${chosenPreset.minutes} min!"
+                                )
+                            } else {
+                                // US 3.2: Attiva / Disattiva una fascia oraria programmata (stile Sveglia)
+                                val scheduleIdx = current.subMenuCursorIndex - quickPresets.size
+                                val targetSchedule = current.schedules.getOrNull(scheduleIdx)
+                                if (targetSchedule != null) {
+                                    val updatedSchedules = repository.toggleSchedule(targetSchedule.id)
+                                    val toggled = updatedSchedules.first { it.id == targetSchedule.id }
+                                    current.copy(
+                                        schedules = updatedSchedules,
+                                        isDetoxActive = repository.isDetoxBlockingActive(),
+                                        remainingQuickTimerMinutes = repository.getRemainingQuickTimerMinutes(),
+                                        currentTime = updatedTime,
+                                        batteryBars = updatedBattery,
+                                        statusBanner = if (toggled.isEnabled) {
+                                            "Sveglia Detox ATTIVA: ${toggled.title}"
+                                        } else {
+                                            "Sveglia Detox DISATTIVATA: ${toggled.title}"
+                                        }
+                                    )
+                                } else {
+                                    current
+                                }
+                            }
+                        }
+
                         MENU_ID_GUARD -> {
                             when (current.subMenuCursorIndex) {
                                 0 -> {
-                                    // Attiva / Disattiva il blocco del Portiere
                                     val newActive = !current.isDetoxActive
                                     repository.setDetoxBlockingActive(newActive)
                                     current.copy(
-                                        isDetoxActive = newActive,
+                                        isDetoxActive = repository.isDetoxBlockingActive(),
+                                        remainingQuickTimerMinutes = repository.getRemainingQuickTimerMinutes(),
                                         currentTime = updatedTime,
                                         batteryBars = updatedBattery,
                                         statusBanner = if (newActive) "Portiere ATTIVO: App bloccate" else "Portiere in PAUSA: Telefono libero"
                                     )
                                 }
                                 1 -> {
-                                    // Apre la schermata Accessibilità di Android per abilitare il Portiere
                                     repository.openAccessibilityPermissionSettings()
                                     current.copy(
                                         currentTime = updatedTime,
@@ -261,7 +342,6 @@ class NokiaViewModel(
                                     )
                                 }
                                 else -> {
-                                    // Mostra dettagli dell'ultimo blocco effettuato dal Portiere
                                     val last = current.lastBlockedApp ?: "Nessuna"
                                     current.copy(
                                         currentTime = updatedTime,
@@ -352,6 +432,8 @@ class NokiaViewModel(
                                 current.copy(
                                     openedItem = selected,
                                     subMenuCursorIndex = initialSubCursor,
+                                    schedules = repository.getSchedules(),
+                                    remainingQuickTimerMinutes = updatedTimerMinutes,
                                     isGuardPermissionEnabled = repository.isGuardServiceEnabled(),
                                     blockedAttemptsCount = repository.getBlockedAttemptsCount(),
                                     lastBlockedApp = repository.getLastBlockedApp(),
@@ -372,6 +454,7 @@ class NokiaViewModel(
                         openedItem = null,
                         selectedIndex = 0,
                         subMenuCursorIndex = 0,
+                        remainingQuickTimerMinutes = updatedTimerMinutes,
                         currentTime = updatedTime,
                         batteryBars = updatedBattery,
                         statusBanner = "Home Nokia"
@@ -388,6 +471,7 @@ class NokiaViewModel(
                             openedItem = null,
                             selectedIndex = safeSelectedIndex,
                             subMenuCursorIndex = 0,
+                            remainingQuickTimerMinutes = updatedTimerMinutes,
                             currentTime = updatedTime,
                             batteryBars = updatedBattery,
                             statusBanner = null
@@ -400,10 +484,23 @@ class NokiaViewModel(
         }
     }
 
+    private fun scheduleRowSubtitle(
+        cursorIndex: Int,
+        presets: List<QuickTimerPreset>,
+        schedules: List<DetoxSchedule>
+    ): String {
+        return if (cursorIndex < presets.size) {
+            presets[cursorIndex].description
+        } else {
+            val s = schedules.getOrNull(cursorIndex - presets.size)
+            if (s != null) "Fascia automatica (${s.daysTag}) - OK=Attiva/Disattiva" else ""
+        }
+    }
+
     private fun guardOptionSubtitle(index: Int): String = when (index) {
         0 -> "Premi OK per attivare/disattivare il blocco"
         1 -> "Premi OK per aprire Permessi Accessibilità"
-        else -> " Protezione Notifiche e Impostazioni (US 2.2)"
+        else -> "Protezione Notifiche e Impostazioni (US 2.2)"
     }
 
     companion object {
@@ -470,7 +567,7 @@ fun buildNokiaMenuFromWhitelist(apps: List<AllowedApp>): List<NokiaMenuItem> {
             indexNumber = items.size + 1,
             title = "Orari Detox",
             packageName = null,
-            description = "Programma fasce orarie di blocco"
+            description = "Timer rapido e Fasce orarie sveglia"
         )
     )
     items.add(

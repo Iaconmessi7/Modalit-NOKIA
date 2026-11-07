@@ -21,7 +21,7 @@ import com.retrophonedetox.ui.viewmodel.NokiaViewModel
 import com.retrophonedetox.ui.viewmodel.buildNokiaMenuFromWhitelist
 
 /**
- * Schermata principale della Modalità NOKIA (Sprint 1 + Sprint 2).
+ * Schermata principale della Modalità NOKIA (Sprint 1 + Sprint 2 + Sprint 3).
  */
 @Composable
 fun NokiaHomeScreen(
@@ -50,6 +50,8 @@ fun NokiaHomeContent(
         NokiaLcdDisplay(
             menuItems = uiState.menuItems,
             configurableApps = uiState.configurableApps,
+            schedules = uiState.schedules,
+            remainingQuickTimerMinutes = uiState.remainingQuickTimerMinutes,
             selectedIndex = uiState.selectedIndex,
             currentTime = uiState.currentTime,
             batteryBars = uiState.batteryBars,

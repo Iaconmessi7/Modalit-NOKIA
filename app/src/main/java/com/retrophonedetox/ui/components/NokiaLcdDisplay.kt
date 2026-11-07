@@ -37,19 +37,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.retrophonedetox.domain.model.AllowedApp
 import com.retrophonedetox.domain.model.ConnectionOption
+import com.retrophonedetox.domain.model.DetoxSchedule
 import com.retrophonedetox.domain.model.NokiaMenuItem
+import com.retrophonedetox.domain.model.QuickTimerPreset
 import com.retrophonedetox.ui.theme.Nokia5200ShellColors
 import com.retrophonedetox.ui.theme.NokiaLcdPalette
 import com.retrophonedetox.ui.viewmodel.NokiaViewModel
 
 /**
- * Sezione Superiore (80%) della Modalità NOKIA (Sprint 1 + Sprint 2):
- * Include anche la schermata del "Portiere Detox" (US 2.1 & US 2.2).
+ * Sezione Superiore (80%) della Modalità NOKIA (Sprint 1 + Sprint 2 + Sprint 3):
+ * Include anche la schermata "Orari Detox" (US 3.1 Timer Rapido + US 3.2 Fasce Orarie Sveglia).
  */
 @Composable
 fun NokiaLcdDisplay(
     menuItems: List<NokiaMenuItem>,
     configurableApps: List<AllowedApp>,
+    schedules: List<DetoxSchedule>,
+    remainingQuickTimerMinutes: Int,
     selectedIndex: Int,
     currentTime: String,
     batteryBars: Int,
@@ -66,6 +70,7 @@ fun NokiaLcdDisplay(
 ) {
     val mainListState = rememberLazyListState()
     val whitelistListState = rememberLazyListState()
+    val scheduleListState = rememberLazyListState()
 
     LaunchedEffect(selectedIndex, openedItem) {
         if (openedItem == null && menuItems.isNotEmpty() && selectedIndex in menuItems.indices) {
@@ -79,6 +84,11 @@ fun NokiaLcdDisplay(
             subMenuCursorIndex in configurableApps.indices
         ) {
             whitelistListState.animateScrollToItem(subMenuCursorIndex)
+        } else if (openedItem?.id == NokiaViewModel.MENU_ID_SCHEDULE) {
+            val totalRows = QuickTimerPreset.entries.size + schedules.size
+            if (totalRows > 0 && subMenuCursorIndex in 0 until totalRows) {
+                scheduleListState.animateScrollToItem(subMenuCursorIndex)
+            }
         }
     }
 
@@ -145,6 +155,7 @@ fun NokiaLcdDisplay(
 
                         NokiaTopHeader(
                             detoxActive = isDetoxActive,
+                            remainingTimerMinutes = remainingQuickTimerMinutes,
                             menuIndexText = currentMenuNumber,
                             timeText = currentTime,
                             inkColor = palette.lcdInk
@@ -158,6 +169,17 @@ fun NokiaLcdDisplay(
                                 .fillMaxWidth()
                         ) {
                             when (openedItem?.id) {
+                                // US 3.1 & US 3.2: Sottomenu "Orari Detox" (Timer Rapido + Fasce Orarie Sveglia)
+                                NokiaViewModel.MENU_ID_SCHEDULE -> {
+                                    NokiaScheduleSubMenu(
+                                        schedules = schedules,
+                                        remainingQuickTimerMinutes = remainingQuickTimerMinutes,
+                                        selectedRowIndex = subMenuCursorIndex,
+                                        listState = scheduleListState,
+                                        palette = palette
+                                    )
+                                }
+
                                 // US 2.1 & US 2.2: Sottomenu "Portiere Detox"
                                 NokiaViewModel.MENU_ID_GUARD -> {
                                     NokiaGuardStatusSubMenu(
@@ -250,9 +272,62 @@ fun NokiaLcdDisplay(
 }
 
 /**
- * US 2.1 & US 2.2 - Sottomenu "Portiere Detox" (`DetoxGuardService`):
- * Mostra lo stato del blocco, il permesso AccessibilityService e i tentativi intercettati.
+ * US 3.1 & US 3.2 - Sottomenu "Orari Detox":
+ * - Righe 1..3: Avvio rapido manuale a tempo (30 min, 1 ora, 2 ore)
+ * - Righe 4..7: Fasce orarie ricorrenti stile Sveglia ([✓] / [ ]) gestite da AlarmManager
  */
+@Composable
+private fun NokiaScheduleSubMenu(
+    schedules: List<DetoxSchedule>,
+    remainingQuickTimerMinutes: Int,
+    selectedRowIndex: Int,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    palette: NokiaLcdPalette
+) {
+    val quickPresets = QuickTimerPreset.entries
+    val allRows = buildList {
+        quickPresets.forEach { preset ->
+            add("▶ ${preset.label}")
+        }
+        schedules.forEach { schedule ->
+            val mark = if (schedule.isEnabled) "[✓]" else "[ ]"
+            add("$mark ${schedule.title} (${schedule.daysTag})")
+        }
+    }
+
+    val headerText = if (remainingQuickTimerMinutes > 0) {
+        "ORARI DETOX (Timer: ${remainingQuickTimerMinutes}m):"
+    } else {
+        "TIMER RAPIDO & SVEGLIE DETOX:"
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = headerText,
+            style = MaterialTheme.typography.labelMedium,
+            color = palette.lcdInk,
+            fontWeight = FontWeight.Black
+        )
+        LazyColumn(
+            state = listState,
+            userScrollEnabled = false,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            itemsIndexed(allRows) { idx, rowLabel ->
+                NokiaMenuRow(
+                    text = rowLabel,
+                    isSelected = (idx == selectedRowIndex),
+                    palette = palette
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun NokiaGuardStatusSubMenu(
     selectedOptionIndex: Int,
@@ -355,10 +430,17 @@ private fun LcdPixelMatrixOverlay(shadowColor: Color) {
 @Composable
 private fun NokiaTopHeader(
     detoxActive: Boolean,
+    remainingTimerMinutes: Int,
     menuIndexText: String,
     timeText: String,
     inkColor: Color
 ) {
+    val leftTitle = when {
+        remainingTimerMinutes > 0 -> "🔒 NOKIA (⏱${remainingTimerMinutes}m)"
+        detoxActive -> "🔒 MODALITÀ NOKIA"
+        else -> "🔓 NOKIA (PAUSA)"
+    }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -366,7 +448,7 @@ private fun NokiaTopHeader(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = if (detoxActive) "🔒 MODALITÀ NOKIA" else "🔓 NOKIA (PAUSA)",
+                text = leftTitle,
                 style = MaterialTheme.typography.labelMedium,
                 color = inkColor,
                 fontWeight = FontWeight.Black

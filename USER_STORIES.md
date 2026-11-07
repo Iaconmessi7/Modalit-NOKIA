@@ -19,8 +19,8 @@ Lo sviluppo di **RetroPhone Detox** è suddiviso in **5 Epic** incrementali. Ogn
 ---
 
 ## ⏰ EPIC 3: Automazione e Gestione del Tempo (Sprint 3)
-- [ ] **US 3.1 - Attivazione Manuale Rapida:** Avvio immediato della modalità Nokia con scelta della durata o dell'orario di fine.
-- [ ] **US 3.2 - Programmazione a Fasce Orarie (Stile Sveglia):** Configurazione di finestre ricorrenti (es. Lun-Ven 09:00 - 13:00) con attivazione e disattivazione automatica tramite `AlarmManager`.
+- [x] **US 3.1 - Attivazione Manuale Rapida:** Avvio immediato della modalità Nokia con scelta della durata o dell'orario di fine.
+- [x] **US 3.2 - Programmazione a Fasce Orarie (Stile Sveglia):** Configurazione di finestre ricorrenti (es. Lun-Ven 09:00 - 13:00) con attivazione e disattivazione automatica tramite `AlarmManager`.
 
 ---
 

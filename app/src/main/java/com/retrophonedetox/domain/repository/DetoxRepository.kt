@@ -2,6 +2,7 @@ package com.retrophonedetox.domain.repository
 
 import com.retrophonedetox.domain.model.AllowedApp
 import com.retrophonedetox.domain.model.ConnectionOption
+import com.retrophonedetox.domain.model.DetoxSchedule
 import com.retrophonedetox.ui.theme.NokiaLcdPalette
 
 /**
@@ -15,45 +16,41 @@ sealed class AppLaunchResult {
 
 /**
  * Pattern Repository (ARCHITECTURE.md):
- * Punto centralizzato per leggere le app installate, salvare la Whitelist,
- * lanciare le vere app del telefono (US 1.3), aprire i controlli di connessione (US 1.4)
- * e coordinare il "Portiere" `DetoxGuardService` (US 2.1 & US 2.2).
+ * Punto centralizzato per Whitelist e avvio app reali (US 1.3), Connessioni (US 1.4),
+ * Portiere `DetoxGuardService` (US 2.1 & 2.2) e Automazione Orari/Timer (US 3.1 & 3.2).
  */
 interface DetoxRepository {
-    /** Restituisce la lista delle app configurabili nella Whitelist con il loro stato attivo/disattivo */
+    /** US 1.3 - Gestione Whitelist e avvio App Reali */
     fun getConfigurableApps(): List<AllowedApp>
-
-    /** Attiva o disattiva un'app nella Whitelist del Nokia e salva la preferenza */
     fun toggleAppWhitelist(appId: String): List<AllowedApp>
-
-    /** Restituisce l'insieme dei packageName attualmente autorizzati (usato dal Portiere nello Sprint 2) */
     fun getWhitelistedPackages(): Set<String>
-
-    /** Lancia l'app reale sul telefono tramite Intent Android (US 1.3) */
     fun launchRealApp(appId: String, packageName: String, title: String): AppLaunchResult
 
-    /** Apre il controllo rapido di sistema per Wi-Fi, Rete, Bluetooth o Hotspot (US 1.4) */
+    /** US 1.4 - Controlli rapidi Connessioni */
     fun openConnectionControl(option: ConnectionOption): Boolean
 
-    /** US 2.1 & US 2.2 - Stato di attivazione del blocco "Portiere" */
+    /** US 2.1 & US 2.2 - Stato e statistiche del "Portiere" */
     fun isDetoxBlockingActive(): Boolean
     fun setDetoxBlockingActive(active: Boolean)
-
-    /** Verifica se l'utente ha abilitato il permesso AccessibilityService per `DetoxGuardService` */
     fun isGuardServiceEnabled(): Boolean
-
-    /** Apre la schermata Accessibilità di Android per attivare il permesso del Portiere */
     fun openAccessibilityPermissionSettings(): Boolean
-
-    /** Statistiche degli ultimi tentativi bloccati dal Portiere (mostrati sul display del Nokia) */
     fun recordLastBlockedApp(appName: String)
     fun getLastBlockedApp(): String?
     fun getBlockedAttemptsCount(): Int
 
-    /** Legge il livello reale della batteria del telefono convertito in 1..4 tacche Nokia */
-    fun getBatteryBars(): Int
+    /** US 3.1 - Attivazione Manuale Rapida a Tempo (Timer) */
+    fun startQuickDetoxTimer(durationMinutes: Int)
+    fun getRemainingQuickTimerMinutes(): Int
+    fun clearExpiredQuickTimerIfNeeded()
 
-    /** Legge e salva il tema Anti-Luce Blu scelto dall'utente */
+    /** US 3.2 - Programmazione a Fasce Orarie Ricorrenti (Stile Sveglia) */
+    fun getSchedules(): List<DetoxSchedule>
+    fun toggleSchedule(scheduleId: String): List<DetoxSchedule>
+    fun isAnyScheduleCurrentlyActive(): Boolean
+    fun syncScheduledAlarms()
+
+    /** Stato hardware e preferenze tema Anti-Luce Blu */
+    fun getBatteryBars(): Int
     fun getSavedPalette(): NokiaLcdPalette
     fun savePalette(palette: NokiaLcdPalette)
 }
