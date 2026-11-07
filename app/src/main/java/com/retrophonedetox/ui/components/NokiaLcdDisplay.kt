@@ -62,6 +62,8 @@ fun NokiaLcdDisplay(
     isCustodianUnlocked: Boolean,
     remainingCustodianUnlockMinutes: Int,
     activeChallenge: UnlockChallenge?,
+    showOnboardingWizard: Boolean,
+    onboardingCursorIndex: Int,
     selectedIndex: Int,
     currentTime: String,
     batteryBars: Int,
@@ -179,7 +181,15 @@ fun NokiaLcdDisplay(
                                 .weight(1f)
                                 .fillMaxWidth()
                         ) {
-                            when (openedItem?.id) {
+                            if (showOnboardingWizard) {
+                                // US 5.1: Wizard Permessi Iniziale alla prima apertura
+                                NokiaOnboardingWizardView(
+                                    isGuardPermissionEnabled = isGuardPermissionEnabled,
+                                    custodianCode20 = custodianCode20,
+                                    palette = palette,
+                                    selectedRowIndex = onboardingCursorIndex
+                                )
+                            } else when (openedItem?.id) {
                                 // US 4.1, US 4.2 & US 4.3: Sottomenu "Sblocco SOS"
                                 NokiaViewModel.MENU_ID_EMERGENCY -> {
                                     NokiaEmergencySubMenu(
@@ -458,6 +468,64 @@ private fun NokiaScheduleSubMenu(
     }
 }
 
+/**
+ * US 5.1 - Wizard Permessi Iniziale alla prima apertura:
+ * Guida l'utente con i 5 tasti fisici ad abilitare il permesso del "Portiere",
+ * annotare il Codice Custode di 20 caratteri e scegliere il Tema Anti-Luce Blu.
+ */
+@Composable
+private fun NokiaOnboardingWizardView(
+    isGuardPermissionEnabled: Boolean,
+    custodianCode20: String,
+    palette: NokiaLcdPalette,
+    selectedRowIndex: Int
+) {
+    val rows = listOf(
+        "1. Portiere: ${if (isGuardPermissionEnabled) "ATTIVO ✓" else "ABILITA ⚙"}",
+        "2. Codice 20c: ${custodianCode20.take(9)}...",
+        "3. Tema: ${palette.displayName}",
+        "4. ▶ ENTRA NEL NOKIA ✓"
+    )
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = "WIZARD BENVENUTO NOKIA (US 5.1):",
+            style = MaterialTheme.typography.labelMedium,
+            color = palette.lcdInk,
+            fontWeight = FontWeight.Black
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, palette.lcdInk)
+                .padding(horizontal = 6.dp, vertical = 3.dp)
+        ) {
+            Text(
+                text = " Annota Codice Custode (20 car.):",
+                style = MaterialTheme.typography.labelMedium.copy(fontSize = 10.sp),
+                color = palette.lcdInk,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = custodianCode20,
+                style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp),
+                color = palette.lcdInk,
+                fontWeight = FontWeight.Black
+            )
+        }
+        rows.forEachIndexed { idx, rowText ->
+            NokiaMenuRow(
+                text = rowText,
+                isSelected = (idx == selectedRowIndex),
+                palette = palette
+            )
+        }
+    }
+}
+
 @Composable
 private fun NokiaGuardStatusSubMenu(
     selectedOptionIndex: Int,
@@ -470,12 +538,13 @@ private fun NokiaGuardStatusSubMenu(
     val rows = listOf(
         "1. Blocco: ${if (isDetoxActive) "ATTIVO 🔒" else "PAUSA 🔓"}",
         "2. Permesso: ${if (isGuardPermissionEnabled) "ATTIVO ✓" else "ABILITA ⚙"}",
-        "3. Bloccate: $blockedAttemptsCount (${lastBlockedApp ?: "Nessuna"})"
+        "3. Bloccate: $blockedAttemptsCount (${lastBlockedApp ?: "Nessuna"})",
+        "4. Wizard Permessi Iniziale 🧭"
     )
 
     Column(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(5.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Text(
             text = "PORTIERE DETOX (US 2.1 & 2.2):",
@@ -490,12 +559,6 @@ private fun NokiaGuardStatusSubMenu(
                 palette = palette
             )
         }
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = "✓ Blocca App fuori Whitelist e Home\n✓ Blocca Impostazioni e Notifiche",
-            style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp),
-            color = palette.lcdInk
-        )
     }
 }
 

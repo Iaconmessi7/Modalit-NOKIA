@@ -63,6 +63,10 @@ interface DetoxRepository {
     fun getRemainingCustodianUnlockMinutes(): Int
     fun grantCustodianUnlock(durationMinutes: Int = 5)
 
+    /** US 5.1 - Wizard Permessi Iniziale (Onboarding alla prima apertura) */
+    fun isOnboardingCompleted(): Boolean
+    fun setOnboardingCompleted(completed: Boolean)
+
     /** Stato hardware e preferenze tema Anti-Luce Blu */
     fun getBatteryBars(): Int
     fun getSavedPalette(): NokiaLcdPalette

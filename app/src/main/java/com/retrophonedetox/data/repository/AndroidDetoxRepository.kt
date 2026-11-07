@@ -574,6 +574,19 @@ class AndroidDetoxRepository(
     }
 
     /**
+     * US 5.1 - Stato del Wizard di Onboarding Iniziale:
+     * Alla prima installazione guida l'utente ad attivare il permesso Accessibilità ("Il Portiere")
+     * e a salvare il proprio Codice Custode a 20 caratteri.
+     */
+    override fun isOnboardingCompleted(): Boolean {
+        return prefs.getBoolean(KEY_ONBOARDING_COMPLETED, false)
+    }
+
+    override fun setOnboardingCompleted(completed: Boolean) {
+        prefs.edit().putBoolean(KEY_ONBOARDING_COMPLETED, completed).apply()
+    }
+
+    /**
      * US 4.1 - Contatore giornaliero delle Pause di Emergenza (si azzera ogni giorno a mezzanotte).
      */
     override fun getUsedEmergencyPausesToday(): Int {
@@ -691,6 +704,7 @@ class AndroidDetoxRepository(
         private const val KEY_EMERGENCY_PAUSE_END_MS = "emergency_pause_end_ms"
         private const val KEY_CUSTODIAN_CODE_20 = "custodian_code_20_chars"
         private const val KEY_CUSTODIAN_UNLOCK_UNTIL_MS = "custodian_unlock_until_ms"
+        private const val KEY_ONBOARDING_COMPLETED = "onboarding_wizard_completed"
 
         const val MAX_DAILY_EMERGENCY_PAUSES = 2
         const val EMERGENCY_PAUSE_MINUTES = 5

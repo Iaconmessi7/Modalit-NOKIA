@@ -32,5 +32,5 @@ Lo sviluppo di **RetroPhone Detox** è suddiviso in **5 Epic** incrementali. Ogn
 ---
 
 ## 🚀 EPIC 5: Onboarding, Rifinitura e Distribuzione APK (Sprint 5)
-- [ ] **US 5.1 - Wizard Permessi Iniziale:** Schermata semplice alla prima apertura che guida l'utente ad abilitare il permesso del "Portiere".
-- [ ] **US 5.2 - Build APK & GitHub Release:** Generazione del file `.apk` firmato pronto per l'installazione sui dispositivi familiari o la pubblicazione su GitHub Releases / sito web.
+- [x] **US 5.1 - Wizard Permessi Iniziale:** Schermata semplice alla prima apertura che guida l'utente ad abilitare il permesso del "Portiere".
+- [x] **US 5.2 - Build APK & GitHub Release:** Generazione del file `.apk` firmato pronto per l'installazione sui dispositivi familiari o la pubblicazione su GitHub Releases / sito web.

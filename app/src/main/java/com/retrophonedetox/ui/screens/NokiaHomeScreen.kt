@@ -59,6 +59,8 @@ fun NokiaHomeContent(
             isCustodianUnlocked = uiState.isCustodianUnlocked,
             remainingCustodianUnlockMinutes = uiState.remainingCustodianUnlockMinutes,
             activeChallenge = uiState.activeChallenge,
+            showOnboardingWizard = uiState.showOnboardingWizard,
+            onboardingCursorIndex = uiState.onboardingCursorIndex,
             selectedIndex = uiState.selectedIndex,
             currentTime = uiState.currentTime,
             batteryBars = uiState.batteryBars,

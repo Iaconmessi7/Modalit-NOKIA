@@ -39,6 +39,8 @@ data class NokiaUiState(
     val isCustodianUnlocked: Boolean = false,
     val remainingCustodianUnlockMinutes: Int = 0,
     val activeChallenge: UnlockChallenge? = null,
+    val showOnboardingWizard: Boolean = false,
+    val onboardingCursorIndex: Int = 0,
     val menuItems: List<NokiaMenuItem> = emptyList(),
     val selectedIndex: Int = 0,
     val openedItem: NokiaMenuItem? = null,
@@ -84,6 +86,8 @@ class NokiaViewModel(
             custodianCode20 = repository.getOrCreateCustodianCode(),
             isCustodianUnlocked = repository.isCustodianUnlocked(),
             remainingCustodianUnlockMinutes = repository.getRemainingCustodianUnlockMinutes(),
+            showOnboardingWizard = !repository.isOnboardingCompleted(),
+            onboardingCursorIndex = 0,
             menuItems = buildNokiaMenuFromWhitelist(apps),
             isDetoxActive = repository.isDetoxBlockingActive(),
             isGuardPermissionEnabled = repository.isGuardServiceEnabled(),
@@ -129,6 +133,16 @@ class NokiaViewModel(
             val connectionOptions = ConnectionOption.entries
             val quickPresets = QuickTimerPreset.entries
             val totalScheduleMenuRows = quickPresets.size + current.schedules.size
+
+            // US 5.1: Se è aperto il Wizard Permessi Iniziale, i 5 tasti guidano l'onboarding
+            if (current.showOnboardingWizard) {
+                return@update handleOnboardingKeyPress(
+                    current = current,
+                    key = key,
+                    updatedTime = updatedTime,
+                    updatedBattery = updatedBattery
+                )
+            }
 
             when (key) {
                 // Tasto in Alto a Destra (▲): scorre in su
@@ -176,7 +190,7 @@ class NokiaViewModel(
                         }
 
                         MENU_ID_GUARD -> {
-                            val prev = if (current.subMenuCursorIndex - 1 < 0) 2 else current.subMenuCursorIndex - 1
+                            val prev = if (current.subMenuCursorIndex - 1 < 0) 3 else current.subMenuCursorIndex - 1
                             current.copy(
                                 subMenuCursorIndex = prev,
                                 remainingQuickTimerMinutes = updatedTimerMinutes,
@@ -306,7 +320,7 @@ class NokiaViewModel(
                         }
 
                         MENU_ID_GUARD -> {
-                            val next = (current.subMenuCursorIndex + 1) % 3
+                            val next = (current.subMenuCursorIndex + 1) % 4
                             current.copy(
                                 subMenuCursorIndex = next,
                                 remainingQuickTimerMinutes = updatedTimerMinutes,
@@ -467,12 +481,22 @@ class NokiaViewModel(
                                         statusBanner = "Attiva 'Portiere Modalità NOKIA'"
                                     )
                                 }
-                                else -> {
+                                2 -> {
                                     val last = current.lastBlockedApp ?: "Nessuna"
                                     current.copy(
                                         currentTime = updatedTime,
                                         batteryBars = updatedBattery,
                                         statusBanner = "Ultimo blocco: $last (${current.blockedAttemptsCount} tot)"
+                                    )
+                                }
+                                else -> {
+                                    // US 5.1: Riapri il Wizard Permessi Iniziale
+                                    current.copy(
+                                        showOnboardingWizard = true,
+                                        onboardingCursorIndex = 0,
+                                        currentTime = updatedTime,
+                                        batteryBars = updatedBattery,
+                                        statusBanner = "Wizard Permessi Iniziale (US 5.1)"
                                     )
                                 }
                             }
@@ -856,7 +880,111 @@ class NokiaViewModel(
     private fun guardOptionSubtitle(index: Int): String = when (index) {
         0 -> "Premi OK per attivare/disattivare il blocco"
         1 -> "Premi OK per aprire Permessi Accessibilità"
-        else -> "Protezione Notifiche e Impostazioni (US 2.2)"
+        2 -> "Protezione Notifiche e Impostazioni (US 2.2)"
+        else -> "Riapri la guida di configurazione iniziale (US 5.1)"
+    }
+
+    /**
+     * US 5.1 - Gestisce i 5 tasti fisici durante il Wizard Permessi Iniziale alla prima apertura.
+     */
+    private fun handleOnboardingKeyPress(
+        current: NokiaUiState,
+        key: NokiaKey,
+        updatedTime: String,
+        updatedBattery: Int
+    ): NokiaUiState {
+        val totalWizardRows = 4
+        return when (key) {
+            NokiaKey.UP -> {
+                val prev = if (current.onboardingCursorIndex - 1 < 0) totalWizardRows - 1 else current.onboardingCursorIndex - 1
+                current.copy(
+                    onboardingCursorIndex = prev,
+                    isGuardPermissionEnabled = repository.isGuardServiceEnabled(),
+                    currentTime = updatedTime,
+                    batteryBars = updatedBattery,
+                    statusBanner = onboardingRowSubtitle(prev, current.custodianCode20)
+                )
+            }
+
+            NokiaKey.DOWN -> {
+                val next = (current.onboardingCursorIndex + 1) % totalWizardRows
+                current.copy(
+                    onboardingCursorIndex = next,
+                    isGuardPermissionEnabled = repository.isGuardServiceEnabled(),
+                    currentTime = updatedTime,
+                    batteryBars = updatedBattery,
+                    statusBanner = onboardingRowSubtitle(next, current.custodianCode20)
+                )
+            }
+
+            NokiaKey.OK -> {
+                when (current.onboardingCursorIndex) {
+                    0 -> {
+                        repository.openAccessibilityPermissionSettings()
+                        current.copy(
+                            isGuardPermissionEnabled = repository.isGuardServiceEnabled(),
+                            currentTime = updatedTime,
+                            batteryBars = updatedBattery,
+                            statusBanner = "Abilita 'Portiere Modalità NOKIA' in Accessibilità"
+                        )
+                    }
+
+                    1 -> {
+                        val newCode = repository.regenerateCustodianCode()
+                        current.copy(
+                            custodianCode20 = newCode,
+                            currentTime = updatedTime,
+                            batteryBars = updatedBattery,
+                            statusBanner = "Annota il Codice 20 car.: $newCode"
+                        )
+                    }
+
+                    2 -> {
+                        val palettes = NokiaLcdPalette.entries
+                        val nextPalette = palettes[(current.palette.ordinal + 1) % palettes.size]
+                        repository.savePalette(nextPalette)
+                        current.copy(
+                            palette = nextPalette,
+                            currentTime = updatedTime,
+                            batteryBars = updatedBattery,
+                            statusBanner = "Tema scelto: ${nextPalette.displayName}"
+                        )
+                    }
+
+                    else -> {
+                        repository.setOnboardingCompleted(true)
+                        current.copy(
+                            showOnboardingWizard = false,
+                            openedItem = null,
+                            selectedIndex = 0,
+                            isGuardPermissionEnabled = repository.isGuardServiceEnabled(),
+                            currentTime = updatedTime,
+                            batteryBars = updatedBattery,
+                            statusBanner = "Benvenuto nella Modalità NOKIA!"
+                        )
+                    }
+                }
+            }
+
+            NokiaKey.SOFT_LEFT, NokiaKey.SOFT_RIGHT -> {
+                repository.setOnboardingCompleted(true)
+                current.copy(
+                    showOnboardingWizard = false,
+                    openedItem = null,
+                    selectedIndex = 0,
+                    currentTime = updatedTime,
+                    batteryBars = updatedBattery,
+                    statusBanner = "Modalità NOKIA pronta"
+                )
+            }
+        }
+    }
+
+    private fun onboardingRowSubtitle(index: Int, code20: String): String = when (index) {
+        0 -> "Passo 1: Premi OK per abilitare il permesso del Portiere"
+        1 -> "Passo 2: Annota i 20 car. ($code20) - OK=Rigenera"
+        2 -> "Passo 3: Premi OK per cambiare Tema Anti-Luce Blu"
+        else -> "Passo 4: Premi OK per entrare nella Modalità NOKIA!"
     }
 
     companion object {
